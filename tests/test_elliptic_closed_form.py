@@ -32,6 +32,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import scipy.sparse.linalg as spla
 from scipy.special import iv
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -92,7 +93,7 @@ def _run_case(geometry, p, kappa, N=800):
     # plateaus in the 1e-10 range from floating-point noise once genuinely
     # converged, which otherwise trips the (correct, but here spurious)
     # backtracking-stalled warning for no practical benefit.
-    C_newton, hist_n = solve_newton(coeffs, U, grid, bc_type="dirichlet", maxiter=100, tol=1e-9)
+    C_newton, hist_n, _ = solve_newton(coeffs, U, grid, bc_type="dirichlet", maxiter=100, tol=1e-9)
     # plain (relax=1.0) Picard does not converge at this Thiele modulus (consistent
     # with the Stage 3/4 finding that Picard needs under-relaxation for stiff
     # problems); relax=0.1 here mirrors that finding rather than working around it.
@@ -174,10 +175,121 @@ def test_weaker_reaction_regime_also_matches():
     assert err_p < 1e-4, err_p
 
 
+def _solve_newton_mixed_bc(coeffs, U, grid, bc_specs, tol=1e-9, maxiter=100, max_backtracks=25):
+    """Test-only helper mirroring elliptic.py's *fixed* solve_newton/_residual
+    Neumann convention (target = -value, matching apply_bc -- see the Fix 1 note
+    in _residual), but generalised to a per-substrate (bc_type, value) mapping.
+    solve_newton itself only accepts one global bc_type for all 4 coupled
+    substrates; a genuinely well-posed all-Neumann nonzero-flux 4-substrate
+    configuration was found to be numerically fragile for reasons unrelated to
+    the Neumann-target fix (large disparity between the Monod-limit NH4 sink and
+    a weakly-regularised coupled O2 block repeatedly triggered the solve_newton
+    degenerate-Jacobian fallback -- a pre-existing multi-substrate conditioning
+    issue, not something this fix touches). Using Dirichlet for O2/NO2/NO3 (the
+    configuration validated by every other closed-form test in this file) and
+    Neumann for NH4 only isolates and directly exercises the corrected formula
+    without that unrelated fragility."""
+    from nitrifiers.elliptic import (SUBSTRATES, build_laplacian, apply_bc,
+                                      reaction_and_jacobian, _assemble_global)
+    Npts = grid.N + 1
+    Lap0 = build_laplacian(grid)
+    Lap_bc = {}
+    for sub in SUBSTRATES:
+        bc_type, value = bc_specs[sub]
+        Lb, _ = apply_bc(Lap0, np.zeros(Npts), grid, bc_type, value)
+        Lap_bc[sub] = Lb
+
+    def residual(C):
+        R, dR = reaction_and_jacobian(C, U, coeffs)
+        for sub in SUBSTRATES:
+            R[sub][-1] = 0.0
+        F = np.concatenate([Lap_bc[sub] @ C[sub] + R[sub] for sub in SUBSTRATES])
+        for k, sub in enumerate(SUBSTRATES):
+            bc_type, value = bc_specs[sub]
+            F[(k + 1) * Npts - 1] = (Lap_bc[sub] @ C[sub])[-1] - (value if bc_type == "dirichlet" else -value)
+        return F, R, dR
+
+    C = {sub: np.full(Npts, bc_specs[sub][1] if bc_specs[sub][0] == "dirichlet" else 1.0) for sub in SUBSTRATES}
+    F, R, dR = residual(C)
+    res_norm = np.linalg.norm(F, ord=np.inf)
+    hist = [res_norm]
+    for _ in range(maxiter):
+        if res_norm < tol:
+            return C, hist, True
+        _, J = _assemble_global(Lap_bc, R, dR, C)
+        dX = spla.spsolve(J, -F)
+        step = 1.0
+        accepted = False
+        for _ in range(max_backtracks):
+            C_trial = {sub: np.maximum(C[sub] + step * dX[k * Npts:(k + 1) * Npts], 0.0)
+                       for k, sub in enumerate(SUBSTRATES)}
+            F_trial, R_trial, dR_trial = residual(C_trial)
+            res_trial = np.linalg.norm(F_trial, ord=np.inf)
+            if np.isfinite(res_trial) and res_trial < res_norm:
+                C, F, R, dR, res_norm = C_trial, F_trial, R_trial, dR_trial, res_trial
+                accepted = True
+                break
+            step *= 0.5
+        if not accepted:
+            return C, hist, False
+        hist.append(res_norm)
+    return C, hist, res_norm < tol
+
+
+def test_nonzero_flux_neumann_matches_closed_form():
+    """Regression test for Fix 1: elliptic.py::_residual (and, by the same
+    hardcoded-0.0 pattern, solve_picard and relaxation.py::solve_relaxation)
+    used to force the Neumann row's residual TARGET to 0.0 regardless of the
+    actual flux `value` passed to apply_bc -- so any bc_type='neumann' solve
+    silently converged to a zero-flux solution no matter what nonzero flux was
+    requested. The matrix ROW itself (built by apply_bc, never buggy) always
+    correctly encoded the requested flux; only the convergence criterion ignored
+    it. This is checked two ways: (1) the closed-form Neumann+linear-reaction
+    solution from the Task 2 catalogue, c(r) = A*sinh(kappa*r)/r with A fixed by
+    the flux (spherical case) -- errors should shrink with N, dominated by the
+    already-documented first-order one-sided Neumann truncation, not stuck at
+    O(1); and (2) directly, by finite-differencing the converged profile at the
+    boundary and checking it equals the requested flux, not zero."""
+    kappa, K_NH4, u0, flux = 1.5, 1.0e7, 1.0, -0.3  # negative = influx -> physically positive profile
+    coeffs = {
+        "Lambda": {"AOB": {"NH4": kappa ** 2 * K_NH4 / u0, "O2": 1.0},
+                   "NOB": {"NO2": 1.0, "O2": 1.0}, "CMX": {"NH4": 1.0, "O2": 1.0}},
+        "LambdaProd": {"AOB": kappa ** 2 * K_NH4 / u0, "NOB": 1.0, "CMX": 1.0},
+        "Khat": {"AOB": {"NH4": K_NH4, "O2": 1e-6}, "NOB": {"NO2": 1.0, "O2": 1.0}, "CMX": {"NH4": 1.0, "O2": 1.0}},
+        "beta": {"AOB_to_NO2": 1.0, "NOB_to_NO3": 1.0, "CMX_to_NO3": 1.0},
+        "production": {"AOB": ("NO2", "AOB_to_NO2"), "NOB": ("NO3", "NOB_to_NO3"), "CMX": ("NO3", "CMX_to_NO3")},
+        "rhat": {"AOB": 1.0, "NOB": 1.0, "CMX": 1.0},
+    }
+    A = -flux / (kappa * np.cosh(kappa) - np.sinh(kappa))
+    bc_specs = {"NH4": ("neumann", flux), "NO2": ("dirichlet", 0.0),
+                "NO3": ("dirichlet", 0.0), "O2": ("dirichlet", 1.0)}
+
+    errs = {}
+    for N in (100, 400):
+        grid = Grid(N=N, geometry="radial", p=2)
+        r = grid.r
+        Npts = grid.N + 1
+        U = {"AOB": np.full(Npts, u0), "NOB": np.zeros(Npts), "CMX": np.zeros(Npts)}
+        C, hist, converged = _solve_newton_mixed_bc(coeffs, U, grid, bc_specs)
+        assert converged, (N, hist[-1])
+
+        c_exact = np.empty_like(r)
+        mask = r > 1e-12
+        c_exact[mask] = A * np.sinh(kappa * r[mask]) / r[mask]
+        c_exact[~mask] = A * kappa
+        errs[N] = np.max(np.abs(C["NH4"] - c_exact))
+
+        actual_flux = -(C["NH4"][-1] - C["NH4"][-2]) / grid.h
+        assert abs(actual_flux - flux) < 1e-6, (N, actual_flux, flux)  # (2): drives to the REQUESTED flux
+
+    assert errs[400] < errs[100] / 2, errs  # (1): error shrinks with N, not stuck at O(1)
+
+
 if __name__ == "__main__":
     test_slab_matches_closed_form()
     test_cylindrical_matches_closed_form()
     test_spherical_matches_closed_form()
     test_spherical_error_converges_with_grid_refinement()
     test_weaker_reaction_regime_also_matches()
+    test_nonzero_flux_neumann_matches_closed_form()
     print("All closed-form ground-truth tests passed.")

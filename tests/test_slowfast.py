@@ -45,7 +45,8 @@ def test_relaxation_fallback_is_available_and_keeps_residual_low():
     U, C, hist, _ = run_slow_loop("eloi", grid, U0, n_slow_steps=10, dt_slow=0.05,
                                    elliptic_tol=1e-8)
     assert all(h.elliptic_residual < 1e-6 for h in hist)
-    assert set(h.elliptic_method for h in hist) <= {"newton", "relaxation"}
+    assert set(h.elliptic_method for h in hist) <= {
+        "newton", "newton_inner_relax_fallback", "outer_relaxation_backstop"}
 
 
 def test_zonation_persists_through_the_slow_loop():

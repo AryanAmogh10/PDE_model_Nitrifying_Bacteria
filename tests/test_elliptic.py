@@ -17,8 +17,9 @@ def test_mild_case_converges_quickly_and_stays_physical():
     coeffs = elliptic_coefficients("toy")
     grid = Grid(N=100, geometry="radial", p=2)
     U = _uniform_u(grid.N + 1, 1e-4)
-    C, hist = solve_newton(coeffs, U, grid, bc_type="dirichlet", maxiter=50)
+    C, hist, method = solve_newton(coeffs, U, grid, bc_type="dirichlet", maxiter=50)
     assert hist[-1] < 1e-8
+    assert method == "newton"
     assert len(hist) <= 10
     for sub in SUBSTRATES:
         assert np.all(C[sub] >= -1e-9)
@@ -32,8 +33,9 @@ def test_stiff_case_produces_anoxic_core_zonation():
     coeffs = elliptic_coefficients("toy")
     grid = Grid(N=100, geometry="radial", p=2)
     U = _uniform_u(grid.N + 1, 0.05)
-    C, hist = solve_newton(coeffs, U, grid, bc_type="dirichlet", maxiter=300)
+    C, hist, method = solve_newton(coeffs, U, grid, bc_type="dirichlet", maxiter=300)
     assert hist[-1] < 1e-8
+    assert method == "newton"
 
     # O2 must be non-negative and monotonically non-decreasing from centre to rim
     assert np.all(C["O2"] >= -1e-9)
@@ -58,7 +60,7 @@ def test_newton_and_heavily_relaxed_picard_agree():
     coeffs = elliptic_coefficients("toy")
     grid = Grid(N=60, geometry="radial", p=2)
     U = _uniform_u(grid.N + 1, 0.05)
-    C_n, _ = solve_newton(coeffs, U, grid, bc_type="dirichlet", maxiter=300)
+    C_n, _, _ = solve_newton(coeffs, U, grid, bc_type="dirichlet", maxiter=300)
     C_p, hist_p = solve_picard(coeffs, U, grid, bc_type="dirichlet",
                                 maxiter=20000, tol=1e-6, relax=0.05)
     for sub in SUBSTRATES:

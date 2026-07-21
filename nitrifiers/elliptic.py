@@ -282,21 +282,70 @@ def _residual(C, U, Lap_bc, coeffs, bc_type):
         R[sub][-1] = 0.0
     F = np.concatenate([Lap_bc[sub] @ C[sub] + R[sub] for sub in SUBSTRATES])
     for k, sub in enumerate(SUBSTRATES):
-        F[(k + 1) * Npts - 1] = (Lap_bc[sub] @ C[sub])[-1] - (c_inf[sub] if bc_type == "dirichlet" else 0.0)
+        # Dirichlet row N target is the prescribed value c_inf[sub]; Neumann row
+        # N (built by apply_bc as (c[N]-c[N-1])/h = -value, value=c_inf[sub] --
+        # see solve_newton) must be driven toward that SAME -value, not 0. An
+        # earlier version hardcoded 0.0 here for the neumann branch, silently
+        # forcing every "neumann" solve to converge to zero-flux regardless of
+        # the actual (nonzero) value passed to apply_bc -- caught by comparing
+        # against the closed-form nonzero-flux Neumann solutions (Task 2/Fix 1).
+        F[(k + 1) * Npts - 1] = (Lap_bc[sub] @ C[sub])[-1] - (c_inf[sub] if bc_type == "dirichlet" else -c_inf[sub])
     return F, R, dR
 
 
 def solve_newton(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
                   tol: float = 1e-10, maxiter: int = 50, verbose: bool = False,
-                  damped: bool = True, max_backtracks: int = 25):
+                  damped: bool = True, max_backtracks: int = 25,
+                  c_max_factor: float = 5.0, relaxation_fallback: bool = True):
     """Newton iteration on the coupled 4*(N+1) system. With damped=True, uses a
-    simple backtracking line search (halving the step until the residual norm
-    decreases) to control the overshoot into unphysical (negative) concentrations
-    that plain full-step Newton exhibits for stiff (large Lambda) parameter
-    regimes -- see Stage 3 notes on solver robustness."""
+    backtracking line search (halving the step until the residual norm decreases
+    AND every concentration stays within a physical-plausibility band) to control
+    two distinct failure modes seen under Neumann boundary conditions (see the
+    Task 1(c) investigation):
+
+    (1) A spurious-root guard: c_max_factor*max(c_inf) upper-bounds every
+        concentration. Without it, an undamped/under-constrained backtrack step
+        can be accepted purely because it happens to reduce the residual norm,
+        even though it lands on a numerically-real but physically nonsensical
+        root (observed: NH4 -> ~100, NO3 -> ~5400 under a sealed zero-flux
+        Neumann + reaction system, an order of magnitude above anything the
+        system could actually supply). Rejecting any trial step that pushes a
+        concentration above this band -- and continuing to halve until one that
+        doesn't is found -- makes that spurious region unreachable, since
+        shrinking the step continuously pulls the trial back toward the current
+        (already-plausible) iterate.
+    (2) A genuine-degeneracy fallback: at a state where an entire substrate has
+        been driven to exactly 0 everywhere (the physically correct answer for,
+        e.g., O2 in a sealed system with active consumption and no resupply),
+        the zero-flux Neumann Jacobian can become exactly singular -- there is
+        no small, plausible step left that reduces the residual, because the
+        physical answer has already been reached and the remaining ~1e-10
+        residual is a discretization/floating-point remainder, not something a
+        better Newton step can fix. Rather than force this and either stall (the
+        old behaviour) or, worse, accept the physically-implausible best-effort
+        trial, this is detected (non-finite Newton update, or backtracking
+        exhausted with no residual-reducing *and* plausible step found) and the
+        solve is handed off to relaxation.solve_relaxation, whose pseudo-time
+        M/dt diagonal regularises exactly this kind of degenerate steady state.
+        This is expected, reported behaviour for that regime, not a failure.
+
+    Returns (C, history, method), where method is "newton" for an ordinary
+    converged (or maxiter-exhausted) Newton solve, or
+    "newton_inner_relax_fallback" when (2) above engaged. Callers that need to
+    know whether the returned C actually came from Newton or from the inner PTC
+    fallback (e.g. slowfast.py::solve_c_given_u's diagnostic method label)
+    should use this rather than inferring it from the residual alone.
+    """
     Npts = grid.N + 1
     Lap0 = build_laplacian(grid)
     c_inf = coeffs["c_inf_hat"]
+    # max(abs(.)), not max(.): c_inf doubles as the Neumann FLUX value (see
+    # apply_bc), which is signed (negative = influx) -- using the signed max
+    # here would silently collapse c_max to 0 whenever the largest-magnitude
+    # c_inf entry happens to be negative, clipping every trial concentration
+    # to exactly 0 regardless of step size. Caught by the Fix 1 nonzero-flux
+    # Neumann regression test, which uses a negative (influx) flux value.
+    c_max = c_max_factor * max(abs(v) for v in c_inf.values())
 
     Lap_bc = {}
     for sub in SUBSTRATES:
@@ -310,11 +359,41 @@ def solve_newton(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
     res_norm = np.linalg.norm(F, ord=np.inf)
     history.append(res_norm)
 
+    def _fall_back_to_relaxation(reason: str):
+        warnings.warn(
+            f"solve_newton: {reason} -- falling back to solve_relaxation (PTC) "
+            f"for this solve; this is expected behaviour for degenerate "
+            f"Neumann/zero-substrate regimes, not a failure.",
+            RuntimeWarning,
+        )
+        from .relaxation import solve_relaxation
+        # steady_tol=tol (the CALLER's own requested tolerance), not
+        # solve_relaxation's own default (1e-9): this fallback exists so a
+        # degenerate Newton solve still meets whatever tolerance the caller
+        # actually asked solve_newton for, rather than silently over- or
+        # under-shooting it. slowfast.py::solve_c_given_u also has its own,
+        # separate outer Newton-then-relaxation fallback; that one is kept as a
+        # defensive backstop for cases where solve_newton returns above
+        # elliptic_tol WITHOUT hitting this inner fallback at all (e.g. maxiter
+        # exhausted mid-convergence, never actually stalling) -- see its
+        # docstring. With steady_tol matched here, the two layers should not
+        # both fire for the same underlying degeneracy with different targets.
+        C_relax, hist_relax = solve_relaxation(coeffs, U, grid, bc_type=bc_type, steady_tol=tol)
+        return C_relax, history + list(hist_relax), "newton_inner_relax_fallback"
+
     for it in range(maxiter):
         if res_norm < tol:
             break
         _, J = _assemble_global(Lap_bc, R, dR, C)
-        dX = spla.spsolve(J, -F)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=spla.MatrixRankWarning)
+            dX = spla.spsolve(J, -F)
+
+        if not np.all(np.isfinite(dX)) and relaxation_fallback:
+            return _fall_back_to_relaxation(
+                f"Newton linear solve returned a non-finite update at iter {it} "
+                f"(|F|_inf={res_norm:.3e}); Jacobian is degenerate"
+            )
 
         step = 1.0
         if not damped:
@@ -323,21 +402,26 @@ def solve_newton(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
             F, R, dR = _residual(C, U, Lap_bc, coeffs, bc_type)
             res_norm = np.linalg.norm(F, ord=np.inf)
         else:
+            accepted = False
             for _ in range(max_backtracks):
-                C_trial = {sub: np.maximum(C[sub] + step * dX[k * Npts:(k + 1) * Npts], 0.0)
+                C_trial = {sub: np.clip(C[sub] + step * dX[k * Npts:(k + 1) * Npts], 0.0, c_max)
                            for k, sub in enumerate(SUBSTRATES)}
+                plausible = all(np.all(C[sub] + step * dX[k * Npts:(k + 1) * Npts] <= c_max)
+                                 for k, sub in enumerate(SUBSTRATES))
                 F_trial, R_trial, dR_trial = _residual(C_trial, U, Lap_bc, coeffs, bc_type)
                 res_trial = np.linalg.norm(F_trial, ord=np.inf)
-                if np.isfinite(res_trial) and res_trial < res_norm:
+                if np.isfinite(res_trial) and res_trial < res_norm and plausible:
                     C, F, R, dR, res_norm = C_trial, F_trial, R_trial, dR_trial, res_trial
+                    accepted = True
                     break
                 step *= 0.5
-            else:
-                # no reduction found even at the smallest step: accept it anyway
-                # (to avoid a hard failure) but warn -- this means the Newton
-                # iteration has stalled and the residual history should be
-                # inspected; a low-but-flat residual here should not be read
-                # as "converged".
+            if not accepted:
+                if relaxation_fallback:
+                    return _fall_back_to_relaxation(
+                        f"Newton backtracking exhausted {max_backtracks} halvings without "
+                        f"a residual-reducing, physically-plausible step at iter {it} "
+                        f"(stuck at |F|_inf={res_norm:.3e})"
+                    )
                 warnings.warn(
                     f"Newton backtracking exhausted {max_backtracks} halvings without "
                     f"reducing the residual (stuck at |F|_inf={res_norm:.3e}); "
@@ -349,7 +433,7 @@ def solve_newton(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
         history.append(res_norm)
         if verbose:
             print(f"Newton it={it} |F|_inf={res_norm:.3e} step={step:.3g}")
-    return C, history
+    return C, history, "newton"
 
 
 def solve_picard(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
@@ -374,7 +458,9 @@ def solve_picard(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
         for sub in SUBSTRATES:
             rhs = -R[sub]
             rhs[0] = 0.0
-            rhs[-1] = c_inf[sub] if bc_type == "dirichlet" else 0.0
+            # see the matching note in _residual: neumann's row-N target must be
+            # -c_inf[sub] (apply_bc's own convention), not 0.0.
+            rhs[-1] = c_inf[sub] if bc_type == "dirichlet" else -c_inf[sub]
             c_sol = spla.spsolve(Lap_bc[sub], rhs)
             C_new[sub] = (1 - relax) * C[sub] + relax * c_sol
             max_change = max(max_change, np.max(np.abs(C_new[sub] - C[sub])))

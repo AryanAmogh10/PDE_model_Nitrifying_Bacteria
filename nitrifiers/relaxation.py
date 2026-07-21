@@ -74,7 +74,11 @@ def solve_relaxation(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichle
             R[sub][-1] = 0.0
         F = np.concatenate([Lap_bc[sub] @ C[sub] + R[sub] for sub in SUBSTRATES])
         for k, sub in enumerate(SUBSTRATES):
-            F[(k + 1) * Npts - 1] = (Lap_bc[sub] @ C[sub])[-1] - (c_inf[sub] if bc_type == "dirichlet" else 0.0)
+            # see the matching note in elliptic.py::_residual: neumann's row-N
+            # target must be -c_inf[sub] (apply_bc's own convention), not 0.0 --
+            # the earlier hardcoded 0.0 silently forced zero-flux regardless of
+            # the actual requested flux value.
+            F[(k + 1) * Npts - 1] = (Lap_bc[sub] @ C[sub])[-1] - (c_inf[sub] if bc_type == "dirichlet" else -c_inf[sub])
         _, J = _assemble_global(Lap_bc, R, dR, C)
 
         res_norm = np.linalg.norm(F, ord=np.inf)
@@ -99,7 +103,7 @@ def compare_with_elliptic(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dir
     """Convenience helper for Stage 4: solve both ways and report max abs
     difference per substrate."""
     from .elliptic import solve_newton
-    C_ell, hist_ell = solve_newton(coeffs, U, grid, bc_type=bc_type, maxiter=300)
+    C_ell, hist_ell, _ = solve_newton(coeffs, U, grid, bc_type=bc_type, maxiter=300)
     C_rel, hist_rel = solve_relaxation(coeffs, U, grid, bc_type=bc_type, **relax_kwargs)
     diffs = {sub: float(np.max(np.abs(C_ell[sub] - C_rel[sub]))) for sub in SUBSTRATES}
     return {

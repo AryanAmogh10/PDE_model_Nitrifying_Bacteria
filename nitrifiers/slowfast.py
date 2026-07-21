@@ -43,20 +43,37 @@ class SlowStepRecord:
 def solve_c_given_u(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
                      elliptic_tol: float = 1e-8, newton_maxiter: int = 200,
                      relax_kwargs: dict | None = None):
-    """Solve the quasi-steady substrate system for the given (fixed) u,
-    trying Newton first and falling back to the pseudo-transient relaxation
-    solver if Newton doesn't reach elliptic_tol. Returns (C, method_used,
-    iters, residual)."""
-    C, hist = solve_newton(coeffs, U, grid, bc_type=bc_type, maxiter=newton_maxiter,
-                            tol=elliptic_tol)
+    """Solve the quasi-steady substrate system for the given (fixed) u.
+
+    solve_newton is tried first and, per its own docstring, has an INNER
+    fallback to relaxation.solve_relaxation for the specific case of a
+    detected degenerate/singular Jacobian (e.g. a substrate driven to exactly
+    0 under zero-flux Neumann); that inner fallback is given this call's own
+    elliptic_tol as its target, so a step handled by it already satisfies the
+    tolerance this function was asked for. The method label returned by
+    solve_newton (see its docstring) is passed straight through, so a step
+    that engaged the inner fallback shows up honestly as
+    "newton_inner_relax_fallback", not "newton".
+
+    The OUTER fallback below (solve_relaxation called directly here) is a
+    separate, defensive backstop: it only fires if solve_newton still returns
+    a residual above elliptic_tol WITHOUT ever having engaged its inner
+    fallback -- e.g. plain non-convergence within newton_maxiter that never
+    actually tripped the degeneracy detector. Because the inner fallback
+    already targets elliptic_tol, these two layers should not both fire for
+    the same underlying degeneracy with mismatched tolerances; this one exists
+    only to catch failure modes the inner detector doesn't cover.
+    """
+    C, hist, method = solve_newton(coeffs, U, grid, bc_type=bc_type, maxiter=newton_maxiter,
+                                    tol=elliptic_tol)
     if hist[-1] < elliptic_tol:
-        return C, "newton", len(hist) - 1, hist[-1]
+        return C, method, len(hist) - 1, hist[-1]
 
     kwargs = dict(dt0=1e-2, dt_growth=1.3, max_steps=5000, steady_tol=elliptic_tol)
     if relax_kwargs:
         kwargs.update(relax_kwargs)
     C, hist_r = solve_relaxation(coeffs, U, grid, bc_type=bc_type, **kwargs)
-    return C, "relaxation", len(hist_r) - 1, hist_r[-1]
+    return C, "outer_relaxation_backstop", len(hist_r) - 1, hist_r[-1]
 
 
 def run_slow_loop(preset_name: str, grid: Grid, U0: dict, n_slow_steps: int,

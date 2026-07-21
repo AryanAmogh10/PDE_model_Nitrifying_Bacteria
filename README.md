@@ -58,6 +58,30 @@ inline in `params.py`.
   stiffness of the `eloi` preset without the `rhs[0]=0` center-decoupling
   workaround still present in the code — it is kept for reference/weaker
   regimes, not relied on.
+- **`solve_newton` Neumann support**: both boundary condition types are
+  implemented (`bc_type="dirichlet"` / `"neumann"`); the Neumann row's
+  residual target correctly reflects the requested flux value (verified
+  against the closed-form linear-reaction Neumann solutions,
+  `c(r) = A*cosh/I0/sinh(kappa*r)` per geometry, with `A` fixed by the flux —
+  see `test_nonzero_flux_neumann_matches_closed_form`). **Caveat:** this is
+  verified only via a mixed-BC construction (Dirichlet for O2/NO2/NO3, Neumann
+  for NH4); the standard entry point with `bc_type="neumann"` applied to *all
+  four coupled substrates simultaneously* remains unreliable (diverges or
+  hangs on realistic coupled configurations) — a separate, still-open
+  conditioning issue, not something fixed here. Stage 6 (`slowfast.py`) always
+  uses Dirichlet and is unaffected.
+- **`solve_newton` robustness guards**: two internal safeguards, both
+  triggerable independently and both reported honestly via the returned
+  `method` string (`"newton"`, `"newton_inner_relax_fallback"`, or — one level
+  up, from `slowfast.py::solve_c_given_u` — `"outer_relaxation_backstop"`):
+  (1) a physical-plausibility upper bound on concentrations, rejecting
+  backtracking steps that reduce the residual but land on a spurious,
+  unphysical root; (2) an automatic fallback to `relaxation.solve_relaxation`
+  (targeting the *caller's own* `tol`, not a hardcoded default) when the
+  Newton Jacobian is genuinely singular — e.g. a substrate correctly driven to
+  exactly 0 under a sealed (zero-flux) boundary. Neither guard affects normal
+  Dirichlet operation (confirmed: zero regressions across the full test
+  suite).
 - **Stage 4 (relaxation)**: pseudo-transient continuation, used as an
   independent cross-check of Stage 3 (agreement to ~1e-11 across all three
   presets and a range of densities).
@@ -95,10 +119,11 @@ pytest tests/
 ```
 
 Test coverage includes: closed-form ground-truth convergence tests for the
-elliptic solver (slab/cylindrical/spherical geometries), mass-conservation
-checks, Newton-vs-relaxation cross-validation across presets/densities,
-analytic-equilibrium and Jacobian-vs-finite-difference checks for the
-parabolic solver, and anoxic-core zonation reproduction.
+elliptic solver (slab/cylindrical/spherical geometries, both Dirichlet and
+nonzero-flux Neumann), mass-conservation checks, Newton-vs-relaxation
+cross-validation across presets/densities, analytic-equilibrium and
+Jacobian-vs-finite-difference checks for the parabolic solver, and anoxic-core
+zonation reproduction.
 
 ## Known limitations
 
@@ -106,6 +131,17 @@ parabolic solver, and anoxic-core zonation reproduction.
   converge and is not a drop-in replacement for Newton under the `eloi`
   preset's reaction stiffness; this is a property of the fixed-point map,
   not the spatial discretization.
+- **`solve_newton(bc_type="neumann")` is unreliable for genuinely-coupled
+  multi-substrate configurations** (i.e. more than one substrate under
+  nonzero flux at once, which the single global `bc_type` parameter forces).
+  Directly tested: diverges (residual ~2e9 after the internal relaxation
+  fallback exhausts its step budget) or hangs, depending on the coupling
+  strength. Only a single-substrate-nonzero-flux configuration (via a mixed
+  Dirichlet/Neumann construction) is verified working. This does not affect
+  Stage 6, which always uses Dirichlet.
+- `solve_newton`'s return signature is `(C, history, method)` — a 3-tuple, not
+  2. All in-repo call sites are updated; any new caller must unpack three
+  values.
 - Parameter presets carry several documented, but unverified-against-source,
   cleaning assumptions (e.g. the `rebeca` yield rescale, `A_OVER_D_RATIO`);
   see the docstring in `params.py` for the full list.
