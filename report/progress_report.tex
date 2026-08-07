@@ -1,0 +1,501 @@
+\documentclass[11pt]{article}
+\usepackage[margin=2.1cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{caption}
+\usepackage{longtable}
+
+\titlespacing*{\section}{0pt}{9pt}{4pt}
+\titlespacing*{\subsection}{0pt}{7pt}{3pt}
+
+\newcommand{\verified}{\textcolor{green!45!black}{\textbf{VERIFIED}}}
+\newcommand{\consistent}{\textcolor{blue!55!black}{\textbf{CONSISTENT}}}
+\newcommand{\assumed}{\textcolor{orange!70!black}{\textbf{ASSUMED}}}
+\newcommand{\unverified}{\textcolor{red!60!black}{\textbf{UNVERIFIED}}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\test}[1]{\texttt{\small #1}}
+
+\title{\vspace{-1.7em}Numerical Validation and Debugging Report:\\
+Slow-Fast PDE Model for Nitrifying Bacteria Biofilms}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-3em}
+
+\begin{center}
+\small Repository: \url{https://github.com/AryanAmogh10/PDE_model_Nitrifying_Bacteria}
+\end{center}
+\vspace{0.3em}
+
+\section{Overview}
+
+This report documents the numerical solver work performed on the codebase at
+the repository above, which implements the six-stage finite-volume PDE model
+of Freingruber, Gonzalez-Cabaleiro and Yoldas (arXiv:2512.13156) for three
+competing nitrifying bacterial species --- ammonia oxidizers (AOB), nitrite
+oxidizers (NOB), and comammox (CMX) --- growing in a spherical/cylindrical
+biofilm granule. Three bacterial density fields $u_{\mathrm{AOB}},
+u_{\mathrm{NOB}}, u_{\mathrm{CMX}}$ (slow, parabolic
+advection--diffusion--reaction) are coupled to four substrate concentration
+fields $c_{\mathrm{NH_4}}, c_{\mathrm{NO_2}}, c_{\mathrm{NO_3}}, c_{\mathrm{O_2}}$
+(fast, quasi-steady elliptic) via the six-stage pipeline in
+Table~\ref{tab:pipeline}, which mirrors the repository's \code{README.md}
+exactly.
+
+This document is written to double as a reading guide to the repository: every
+claim below names the specific module and, where applicable, the exact
+\code{tests/} function that establishes it, so the codebase can be inspected
+directly against each statement. Every claim is labelled \verified{}
+(independently confirmed with numbers, reproduced within this project),
+\consistent{} (internally self-consistent, not cross-checked against an
+external ground truth), or \assumed{} (a modelling choice taken on faith from
+the source material, not independently verified).
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{clp{8.5cm}}
+\toprule
+Stage & Module & Role \\
+\midrule
+1 & \code{nitrifiers/params.py} & Dimensional parameter presets (\code{toy}, \code{rebeca}, \code{eloi}) \\
+2 & \code{nitrifiers/nondim.py} & Non-dimensionalization; builds $\Lambda$, $\hat K$, etc. \\
+3 & \code{nitrifiers/elliptic.py} & Quasi-steady substrate solver (Newton + Picard) \\
+4 & \code{nitrifiers/relaxation.py} & Pseudo-transient-continuation cross-check for Stage 3 \\
+5 & \code{nitrifiers/parabolic.py} & Fully-implicit Newton solver for bacterial density evolution \\
+6 & \code{nitrifiers/slowfast.py} & Couples Stages 3--5 into the full slow-time loop \\
+\bottomrule
+\end{tabular}
+\caption{The six-stage pipeline (\code{README.md}, ``Pipeline'' section).}
+\label{tab:pipeline}
+\end{table}
+
+\noindent Repository layout used throughout this report:
+\code{nitrifiers/} (six pipeline modules above), \code{tests/} (eight test
+files, one per stage or cross-cutting concern, enumerated in
+Table~\ref{tab:testmap}), \code{parameters\_nitrifiers\_clean.json} (raw
+\code{rebeca}-preset source data), \code{requirements.txt}, \code{README.md}.
+Running \code{pytest tests/} (or each file's own \code{if
+\_\_name\_\_=="\_\_main\_\_"} block) reproduces every numerical result quoted
+below.
+
+\section{Chronology of Bugs Found and Fixed}
+
+\subsection{Death term: constant vs.\ density-dependent (\code{parabolic.py})}
+The original implementation used a constant death rate $-\hat b_i$. Direct
+visual inspection of the rendered arXiv PDF (eq.\ 2.1/2.5) confirmed the
+death term is density-dependent, $-\hat b_i \hat\rho$, $\hat\rho=\sum_j u_j$.
+\verified{}: an earlier PDF text-extraction pass had silently dropped the
+$\rho$ subscript. Fixed in \code{parabolic.py}; regression test
+\test{tests/test\_parabolic.py::test\_death\_term\_is\_density\_dependent\_not\_constant}
+checks that the per-step growth ratio strictly decreases under ample uniform
+substrate (a constant death term would give exactly exponential growth
+instead).
+
+\subsection{Row-0 (domain-centre) reaction zeroing (\code{elliptic.py}, \code{relaxation.py})}
+An earlier version zeroed the reaction contribution at the $r=0$ row in both
+\code{elliptic.py} (\code{\_residual}, \code{\_assemble\_global}) and
+\code{relaxation.py}, mistakenly treating $r=0$ as a boundary row; it is a
+genuine interior point using a symmetric stencil. \verified{} via a hand-built
+reference-Jacobian comparison and the convergence-order study in
+Section~\ref{sec:convergence}. Fixed by restoring the row-0 reaction term in
+both modules.
+
+\subsection{Near-centre finite-volume cell-volume approximation (\code{elliptic.py::build\_laplacian})}
+\label{sec:fv-fix}
+Even after the row-0 fix, the convergence-order benchmark
+(Section~\ref{sec:convergence}) still showed only $\sim$1.7--1.9th order with
+reactions active. Root cause: interior rows near the centre ($i{=}1,2,3,\dots$)
+used the finite-volume shortcut $V_i \approx r_i^p h$, whose relative error is
+$O(h^2/r_i^2)$ --- 7.7\% at $i{=}1$, falling off for larger $i$. Not a row-0
+bug (row 0's own formula was already exact); an under-resolved volume
+normalisation on the first few rows adjacent to the centre. \verified{} by
+rederiving \code{build\_laplacian} to use the exact cell volume
+$V_i=(r_e^{p+1}-r_w^{p+1})/(p+1)$ at every row, confirming exact mass
+conservation to machine precision for slab, cylindrical, and spherical
+geometries, and a flattened (no longer centre-peaked) spatial error profile.
+
+\subsection{Neumann boundary residual target hardcoded to zero}
+\label{sec:neumann-bug}
+Discovered during Neumann boundary-condition exploration
+(Section~\ref{sec:neumann-tests}): three functions ---
+\code{elliptic.py::\_residual}, \code{elliptic.py::solve\_picard}, and
+\code{relaxation.py::solve\_relaxation} --- all hardcoded the Neumann row's
+residual/RHS target to \code{0.0} instead of \code{-value} (the flux value
+passed to \code{apply\_bc}, which itself correctly built the matrix row).
+Effect: any \code{bc\_type='neumann'} solve, in any of the three solvers,
+silently converged to a zero-flux solution regardless of the requested
+nonzero flux. \verified{}: fixed in all three locations; regression test
+\test{tests/test\_elliptic\_closed\_form.py::test\_nonzero\_flux\_neumann\_matches\_closed\_form}
+added (Section~\ref{sec:neumann-fix-verify}).
+
+\subsection{Plausibility-bound sign bug (\code{elliptic.py::solve\_newton})}
+While fixing the spurious-root problem (Section~\ref{sec:problemAB}), an
+upper concentration bound \code{c\_max = c\_max\_factor * max(c\_inf.values())}
+was added. This breaks when \code{c\_inf} values are \emph{negative} ---
+legitimate for a Neumann influx --- since \code{max(-0.3,0,0,0)=0.0} collapses
+the bound to zero. \verified{}: fixed to \code{max(abs(v) for v in
+c\_inf.values())}; the original spurious-root guard reconfirmed still holding,
+and normal positive-\code{c\_inf} Dirichlet operation confirmed unaffected.
+
+\subsection{Fallback diagnostic mislabeling and tolerance mismatch}
+A relaxation-based fallback added to \code{solve\_newton} for genuinely
+degenerate (singular-Jacobian) states could silently substitute a relaxation
+answer while \code{slowfast.py::solve\_c\_given\_u} labelled the step
+\code{"newton"}, using \code{solve\_relaxation}'s default tolerance
+($10^{-9}$) rather than the caller's. \verified{}: \code{solve\_newton} now
+returns \code{(C, history, method)} with an honest method string; the inner
+fallback targets the caller's own \code{tol}; a documented, independently
+confirmed-reachable outer backstop remains in \code{solve\_c\_given\_u} for a
+distinct failure mode.
+
+\section{Testing and Validation, Organized by Repository File}
+
+\subsection{Stage 1--2: \code{test\_params.py}, \code{test\_nondim.py}}
+For every preset, the slow-fast separation parameter $\varepsilon = r_{\max}
+L^2/D_j$ was computed per substrate and confirmed $\varepsilon \ll 10^{-2}$
+(\verified{}, \test{test\_nondim.py::test\_epsilon\_is\_small\_for\_all\_presets}),
+justifying the quasi-steady-substrate split underlying the whole pipeline.
+Table~\ref{tab:testmap} (rows 1--2) lists the remaining structural checks.
+
+\subsection{Stage 3: \code{test\_elliptic.py}, \code{test\_elliptic\_closed\_form.py}, \code{test\_reaction\_terms.py}}
+\label{sec:convergence}
+A single-species, single-substrate reduction of the full system (setting
+$u_{\mathrm{NOB}}{=}u_{\mathrm{CMX}}{=}0$, $K_{\mathrm{NH_4}}\!\gg\! c_\infty$
+so the Monod term is deep-linear) reduces the NH$_4$ equation to
+$0=\nabla^2 c-\kappa^2 c$, $c(1){=}c_\infty$, $\partial_r c(0){=}0$, with
+standard closed forms
+\[
+\text{slab: } c_\infty\frac{\cosh(\kappa r)}{\cosh\kappa}, \quad
+\text{cylindrical: } c_\infty\frac{I_0(\kappa r)}{I_0(\kappa)}, \quad
+\text{spherical: } c_\infty\frac{\sinh(\kappa r)}{r\sinh\kappa}.
+\]
+Table~\ref{tab:closedform} summarises the per-test agreement.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llcc}
+\toprule
+\code{tests/test\_elliptic\_closed\_form.py} test & $\kappa$ & Newton err.\ & Picard err.\ \\
+\midrule
+\test{test\_slab\_matches\_closed\_form} & 2.0 & $<10^{-4}$ & $<10^{-3}$ \\
+\test{test\_cylindrical\_matches\_closed\_form} & 2.0 & $<10^{-4}$ & $<10^{-3}$ \\
+\test{test\_spherical\_matches\_closed\_form} & 2.0 & $<10^{-4}$ & $<10^{-3}$ \\
+\test{test\_weaker\_reaction\_regime\_also\_matches} & 0.5 & $<10^{-4}$ & $<10^{-4}$ \\
+\bottomrule
+\end{tabular}
+\caption{\verified{}: Newton/Picard vs.\ closed form, all $<10^{-3}$--$10^{-4}$.}
+\label{tab:closedform}
+\end{table}
+
+\paragraph{\test{test\_spherical\_error\_converges\_with\_grid\_refinement}.}
+Before the Section~\ref{sec:fv-fix} fix, a 4-point refinement study
+($N{=}50,100,200,400$, spherical, $\kappa{=}1.5$) gave orders 1.74, 1.77, 1.76
+--- stuck below the expected 2.0. After the fix, apparent degradation
+persisted at large $N$ in double precision (order 1.41 for $N{:}200{\to}400$),
+traced to floating-point cancellation in the residual $\nabla^2 c + R(c)$,
+which sums $O(K_{\mathrm{NH_4}})\!\sim\!10^7$-magnitude terms nearly cancelling
+to $O(1)$ --- an absolute floor around $10^{-9}$--$10^{-10}$, confirmed
+independent of Newton's \code{tol} (identical errors from \code{tol}=$10^{-9}$
+to $10^{-14}$). To isolate genuine discretization order from this floor, the
+identical discretization was re-solved with \textbf{50-decimal-digit
+\code{mpmath}} arithmetic via a hand-written high-precision tridiagonal
+solve (not part of the repository; a validation-only script), bypassing
+double-precision sparse LU entirely (Table~\ref{tab:mpmath}).
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{rcc}
+\toprule
+$N$ & Max error (mpmath, 50 digits) & Order \\
+\midrule
+50 & $1.9527\times10^{-5}$ & --- \\
+100 & $4.8842\times10^{-6}$ & 1.999 \\
+200 & $1.2212\times10^{-6}$ & 2.000 \\
+400 & $3.0532\times10^{-7}$ & 2.000 \\
+800 & $7.6330\times10^{-8}$ & 2.000 \\
+\bottomrule
+\end{tabular}
+\caption{\verified{} genuine 2nd-order accuracy, roundoff-free reference. Average order over full range: 1.9997.}
+\label{tab:mpmath}
+\end{table}
+
+\code{test\_diffusion\_operator\_is\_exactly\_mass\_conservative} (in
+\code{test\_parabolic.py}, exercising \code{elliptic.py::build\_laplacian})
+confirms exact mass conservation ($<10^{-13}$) for all three geometries
+post-fix. \code{test\_reaction\_terms.py} independently cross-checks the
+reaction/Jacobian assembly against hand computation
+(\test{test\_reaction\_terms\_match\_independent\_hand\_computation}) and a
+production-stoichiometry regression
+(\test{test\_production\_uses\_produced\_substrates\_lambda\_not\_source\_lambda}).
+
+\subsection{Stage 3 Neumann boundary conditions}
+\label{sec:neumann-tests}
+Three sub-cases were explored (a purpose-built test wrapper was used to
+bypass a separate, still-open API quirk in which \code{solve\_newton}'s
+standard entry point reuses \code{c\_inf\_hat} as the Neumann flux magnitude,
+so a genuine ``zero-flux'' request cannot be expressed for a substrate whose
+bulk \code{c\_inf} is itself nonzero):
+\begin{enumerate}[label=(\alph*)]
+\item \textbf{Zero-flux, reaction off.} \verified{}: initial concentration
+returned exactly unchanged (0 Newton iterations, residual $4.5\times10^{-13}$),
+independently for all four substrates.
+\item \textbf{Nonzero-flux, reaction off.} \verified{} to correctly
+\emph{fail}: no steady state exists (Fredholm solvability violated); NH$_4$
+diverges to $\sim5\times10^{11}$; confirmed via smallest singular value of the
+pure-Neumann Laplacian block, $3.2\times10^{-15}$.
+\item \textbf{Zero-flux, reaction on.} Found the spurious-root bug: undamped
+Newton converged to NH$_4\to100.5$, NO$_3\to5416$ --- orders of magnitude
+above anything the sealed system could supply.
+\end{enumerate}
+
+\subsubsection{Fix and re-verification (Problems A and B)}
+\label{sec:problemAB}
+\textbf{Problem A} (spurious root): an upper bound \code{c\_max} = 5$\times$
+(largest-magnitude \code{c\_inf} entry), enforced jointly with residual
+decrease during backtracking. \verified{}: the spurious root is now
+unreachable; Newton instead converges to $C\equiv0$ (legitimate, since
+Monod$(0){=}0$). \textbf{Problem B} (genuine degeneracy, not a bug): once a
+substrate is driven to exactly 0 everywhere under zero-flux Neumann, the
+Jacobian can become exactly singular; detected and handed to
+\code{relaxation.solve\_relaxation}. \verified{}: forcing the exact degenerate
+state directly confirmed the fallback engages, converging to residual
+$3.18\times10^{-12}$.
+
+\subsection{Neumann fix verification pass (independent re-check)}
+\label{sec:neumann-fix-verify}
+A subsequent, independent verification pass re-derived every claim with fresh
+numbers rather than re-running the same tests and reporting green:
+\begin{itemize}
+\item \textbf{Code confirmed.} All three lines quoted directly from current
+source, each reading \code{c\_inf[sub] if bc\_type=="dirichlet" else
+-c\_inf[sub]}; exhaustive \code{grep} confirmed zero remaining hardcoded
+\code{0.0} Neumann targets anywhere in \code{nitrifiers/}.
+\item \textbf{Scope honestly bounded.} The regression test
+(\test{test\_nonzero\_flux\_neumann\_matches\_closed\_form}) uses a
+\emph{mixed}-BC construction (Dirichlet for O$_2$/NO$_2$/NO$_3$, nonzero
+Neumann for NH$_4$ only) --- \textbf{not} the standard
+\code{solve\_newton(bc\_type='neumann')} entry point applied to all four
+coupled substrates at once. That entry point was tested directly on
+genuinely-coupled configurations and found \unverified{} --- in fact actively
+broken: one configuration diverged to residual $2.15\times10^9$ (after
+exhausting its own internal relaxation fallback's 5000-step budget); a further
+batch of three configurations did not complete within 100 seconds. Reported
+as an open issue in \code{README.md} $\rightarrow$ ``Known limitations,'' not
+smoothed over.
+\item \textbf{Independent flux check.} Boundary flux recomputed by finite
+difference directly from the returned \code{C} array (not any internal
+solver quantity): requested $-0.3$, computed $-0.30000000$, difference
+$1.1\times10^{-14}$.
+\item \textbf{Full regression.} All 8 files in \code{tests/} re-run and
+confirmed passing after every fix in this section.
+\end{itemize}
+The three follow-on fallback-transparency claims were likewise independently
+re-confirmed: all six \code{solve\_newton} call sites (listed in
+Table~\ref{tab:callsites}) correctly unpack the new 3-tuple, both statically
+and at runtime; a run at \code{tol}=$10^{-11}$ (tighter than the old
+hardcoded $10^{-9}$ default) reached residual $7.28\times10^{-12}$, past
+where the old default would have stopped, proving the caller's tolerance is
+genuinely used; and both the inner (\code{"newton\_inner\_relax\_fallback"})
+and outer (\code{"outer\_relaxation\_backstop"}) layers were shown
+independently reachable via two distinct, deliberately constructed trigger
+conditions.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+File & Unpacking \\
+\midrule
+\code{nitrifiers/relaxation.py} (\code{compare\_with\_elliptic}) & \code{C\_ell, hist\_ell, \_} \\
+\code{nitrifiers/slowfast.py} (\code{solve\_c\_given\_u}) & \code{C, hist, method} \\
+\code{tests/test\_elliptic.py} ($\times$2) & \code{C, hist, method} \\
+\code{tests/test\_elliptic.py} ($\times$1) & \code{C\_n, \_, \_} \\
+\code{tests/test\_elliptic\_closed\_form.py} & \code{C\_newton, hist\_n, \_} \\
+\bottomrule
+\end{tabular}
+\caption{All six call sites of \code{solve\_newton}, confirmed correctly unpacking the new 3-tuple.}
+\label{tab:callsites}
+\end{table}
+
+\subsection{Stage 4: \code{test\_relaxation.py}}
+\test{test\_relaxation\_matches\_newton\_across\_densities\_and\_presets} runs
+all three presets $\times$ four uniform densities
+($10^{-4},0.01,0.05,0.5$). \verified{}, post Section~\ref{sec:fv-fix}:
+agreement of $8.7\times10^{-12}$ to $7.8\times10^{-11}$ across all twelve
+combinations --- roughly five orders tighter than the $10^{-6}$ threshold in
+the test file. Relaxation converges in $\sim$20--22 pseudo-steps regardless
+of preset/density.
+\test{test\_relaxation\_reproduces\_anoxic\_core} confirms O$_2\approx
+2.3\times10^{-30}$ at the centre, $0.400$ at the rim, strictly monotonic.
+\test{test\_relaxation\_converges\_and\_stays\_physical} confirms
+non-negativity and residual $<10^{-8}$.
+
+\subsection{Stage 5: \code{test\_parabolic.py}}
+Nine tests (Table~\ref{tab:testmap}, row 5) cover exact mass conservation of
+diffusion (\test{test\_diffusion\_operator\_is\_exactly\_mass\_conservative});
+advection-operator conservation convergence
+(\test{test\_advection\_operator\_converges\_to\_mass\_conservative});
+substrate-gated, non-negative growth
+(\test{test\_bacteria\_stay\_nonnegative\_and\_grow\_only\_where\_substrate\_allows});
+decay to zero with no substrate
+(\test{test\_pure\_decay\_when\_no\_substrate\_available}); the death-term
+regression (Section~2.1); convergence to the analytic logistic equilibrium
+$\rho^\ast=g/\hat b$, matched to $<10^{-4}\rho^\ast$
+(\test{test\_uniform\_case\_reaches\_analytic\_equilibrium}); stability at
+large $\Delta t\in\{0.5,1.0\}$
+(\test{test\_stable\_and\_bounded\_at\_large\_dt}); the analytic
+cross-diffusion Jacobian $\partial(\mathrm{Adv}(\rho)u_i)/\partial\rho$
+matched to finite difference, relative error $<10^{-6}$
+(\test{test\_advection\_rho\_jacobian\_matches\_finite\_difference}); and
+clean, zero-stall-warning Newton convergence on a sharp density front
+(\test{test\_sharp\_front\_newton\_converges\_to\_tolerance}) --- the regime in
+which an earlier ``modified Newton'' (missing the cross-diffusion Jacobian
+term) stalled at $\sim10^{-4}$ residual. All \verified{}.
+
+\subsection{Stage 6: \code{test\_slowfast.py}, plus dedicated exploration scripts}
+\test{test\_slow\_loop\_runs\_and\_stays\_physical\_on\_all\_presets},
+\test{test\_relaxation\_fallback\_is\_available\_and\_keeps\_residual\_low},
+\test{test\_zonation\_persists\_through\_the\_slow\_loop}, and
+\test{test\_bacterial\_mass\_grows\_over\_the\_slow\_loop\_when\_substrate\_is\_ample}
+together confirm the coupled elliptic+parabolic loop runs cleanly, stays
+physical (non-negative, bounded mass), and preserves rim-to-core O$_2$
+zonation over 20--30 slow steps. A separate 100-step \code{eloi}-preset run
+(outside the pytest suite) confirmed clean Newton convergence throughout
+(9--10 iterations/step, residuals $\sim 10^{-12}$) and mass growth
+$0.00423\to0.0118$, growth-ratio std.\ $10^{-4}$ over the final 10 steps.
+
+\paragraph{CMX-vs-AOB competitive dominance (dedicated diagnostic, not in \code{tests/}).}
+Motivated by CMX density counter-intuitively peaking at the anoxic core.
+Tracking CMX density and O$_2$ at $r{=}0$ over all 100 steps showed CMX core
+density \emph{decaying} $-10.58\%$ net --- \verified{} expected commensalism
+behaviour (cross-diffusion pushes biomass inward, where it then starves), not
+a bug. A full Stage 6 sweep over NH$_4$ feed ($1.0\to3\times10^{-4}$,
+dimensionless) found CMX can overtake AOB only at NH$_4\le0.0003$--$0.0004$
+(0.15--0.2 mg/L, vs.\ \code{eloi}'s real 500 mg/L feed --- factor $\sim$3000
+lower), margin 1.0008--1.005, both species stagnant across the crossover.
+\verified{} as genuine but practically unreachable under any realistic feed.
+
+\subsection{Closed-form catalogue (documentation, cross-referenced against tests)}
+Extended to Neumann boundary conditions with linear reaction, all three
+geometries ($A\cosh$, $AI_0$, $A\sinh/r$, $A$ fixed by the flux). \verified{}
+against the numerical solver, errors $4.6$--$8.1\times10^{-4}$ (consistent
+with the documented first-order one-sided Neumann discretization). The full
+nonlinear Monod case --- what \code{toy}/\code{rebeca}/\code{eloi} actually
+use --- has \textbf{no known closed form for any geometry or boundary
+condition}, which is why the project's validation strategy throughout relies
+on the deep-linear-limit reduction, mass conservation, and cross-solver
+agreement rather than a fully nonlinear closed form.
+
+\section{Test Inventory (complete)}
+
+\begin{longtable}{p{3.6cm}p{9.4cm}c}
+\toprule
+\textbf{File / test} & \textbf{Checks} & \textbf{Status}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{File / test} & \textbf{Checks} & \textbf{Status}\\
+\midrule
+\endhead
+\multicolumn{3}{l}{\code{test\_params.py}} \\
+\test{test\_all\_presets\_have\_required\_fields} & Structural completeness of \code{toy}/\code{rebeca}/\code{eloi} & \verified \\
+\test{test\_beta\_is\_unit\_molar\_conversion} & Stoichiometric conversion factors & \verified \\
+\test{test\_bacterial\_advection\_dominates\_diffusion} & $A_i \gg D_i$ ordering used by \code{A\_OVER\_D\_RATIO} & \consistent \\
+\test{test\_eloi\_oxygen\_yields\_match\_stoichiometry} & \code{eloi} O$_2$ yields vs.\ known stoichiometry & \verified \\
+\test{test\_rebeca\_yields\_are\_order\_mol\_fraction} & \code{rebeca} yield magnitude sanity & \assumed \\
+\midrule
+\multicolumn{3}{l}{\code{test\_nondim.py}} \\
+\test{test\_epsilon\_is\_small\_for\_all\_presets} & $\varepsilon\ll1$ for every preset/substrate & \verified \\
+\test{test\_bacterial\_diffusivity\_ratio\_smaller\_than\_epsilon} & Secondary scale-separation check & \verified \\
+\test{test\_dimensionless\_growth\_ratio\_is\_between\_zero\_and\_one} & Growth-rate normalisation bounds & \verified \\
+\test{test\_cross\_diffusion\_number\_matches\_ratio} & $\hat A_i$ construction consistency & \consistent \\
+\midrule
+\multicolumn{3}{l}{\code{test\_elliptic.py}} \\
+\test{test\_mild\_case\_converges\_quickly\_and\_stays\_physical} & Newton converges $<10$ iters, non-negative, bounded & \verified \\
+\test{test\_stiff\_case\_produces\_anoxic\_core\_zonation} & O$_2\to0$ core, NH$_4$ partial, NO$_2$/NO$_3$ pure by-products & \verified \\
+\test{test\_newton\_and\_heavily\_relaxed\_picard\_agree} & Newton vs.\ heavily under-relaxed Picard & \verified \\
+\midrule
+\multicolumn{3}{l}{\code{test\_elliptic\_closed\_form.py}} \\
+\test{test\_slab\_matches\_closed\_form} & vs.\ $\cosh$ closed form, $\kappa{=}2.0$ & \verified \\
+\test{test\_cylindrical\_matches\_closed\_form} & vs.\ $I_0$ closed form, $\kappa{=}2.0$ & \verified \\
+\test{test\_spherical\_matches\_closed\_form} & vs.\ $\sinh/r$ closed form, $\kappa{=}2.0$ & \verified \\
+\test{test\_spherical\_error\_converges\_with\_grid\_refinement} & 2nd-order convergence, $N{=}50..400$ & \verified \\
+\test{test\_weaker\_reaction\_regime\_also\_matches} & Second Thiele modulus, $\kappa{=}0.5$ & \verified \\
+\test{test\_nonzero\_flux\_neumann\_matches\_closed\_form} & Neumann fix regression (Sec.~\ref{sec:neumann-fix-verify}) & \verified \\
+\midrule
+\multicolumn{3}{l}{\code{test\_reaction\_terms.py}} \\
+\test{test\_reaction\_terms\_match\_independent\_hand\_computation} & Reaction assembly vs.\ hand computation & \verified \\
+\test{test\_production\_uses\_produced\_substrates\_lambda\_not\_source\_lambda} & Stoichiometric $\Lambda$ regression & \verified \\
+\test{test\_reaction\_terms\_insensitive\_to\_rhat\_entry} & No double-counting of $\hat r_i$ & \verified \\
+\midrule
+\multicolumn{3}{l}{\code{test\_relaxation.py}} \\
+\test{test\_relaxation\_converges\_and\_stays\_physical} & PTC converges, residual $<10^{-8}$, non-negative & \verified \\
+\test{test\_relaxation\_matches\_newton\_across\_densities\_and\_presets} & vs.\ Newton, all presets $\times$ 4 densities & \verified \\
+\test{test\_relaxation\_reproduces\_anoxic\_core} & O$_2$ core/rim zonation, monotonicity & \verified \\
+\midrule
+\multicolumn{3}{l}{\code{test\_parabolic.py}} \\
+\test{test\_diffusion\_operator\_is\_exactly\_mass\_conservative} & Exact conservation, 3 geometries & \verified \\
+\test{test\_advection\_operator\_converges\_to\_mass\_conservative} & 1st-order conservation convergence & \verified \\
+\test{test\_bacteria\_stay\_nonnegative\_and\_grow\_only\_where\_substrate\_allows} & Substrate-gated growth & \verified \\
+\test{test\_pure\_decay\_when\_no\_substrate\_available} & Monotone decay, no substrate & \verified \\
+\test{test\_death\_term\_is\_density\_dependent\_not\_constant} & Death-term regression (Sec.~2.1) & \verified \\
+\test{test\_uniform\_case\_reaches\_analytic\_equilibrium} & $\rho^\ast=g/\hat b$, $<10^{-4}\rho^\ast$ & \verified \\
+\test{test\_stable\_and\_bounded\_at\_large\_dt} & Stability, $\Delta t\in\{0.5,1.0\}$ & \verified \\
+\test{test\_advection\_rho\_jacobian\_matches\_finite\_difference} & Analytic vs.\ FD Jacobian, $<10^{-6}$ & \verified \\
+\test{test\_sharp\_front\_newton\_converges\_to\_tolerance} & Zero-stall Newton, sharp front & \verified \\
+\midrule
+\multicolumn{3}{l}{\code{test\_slowfast.py}} \\
+\test{test\_slow\_loop\_runs\_and\_stays\_physical\_on\_all\_presets} & Full loop, all presets, 20 steps & \verified \\
+\test{test\_relaxation\_fallback\_is\_available\_and\_keeps\_residual\_low} & Inner fallback engages when needed & \verified \\
+\test{test\_zonation\_persists\_through\_the\_slow\_loop} & Zonation persists, 30 steps & \verified \\
+\test{test\_bacterial\_mass\_grows\_over\_the\_slow\_loop\_when\_substrate\_is\_ample} & Net mass growth over loop & \verified \\
+\bottomrule
+\caption{Complete inventory of automated tests in \code{tests/}, cross-referenced to the sections above.}
+\label{tab:testmap}
+\end{longtable}
+
+\section{Known Limitations (as stated in \code{README.md})}
+\begin{itemize}
+\item Picard requires a center-row RHS workaround to converge under
+\code{eloi}'s reaction stiffness --- a property of the fixed-point map
+(confirmed via Jacobian/eigenvalue analysis), not the discretization; Picard
+is never relied on as a primary solver.
+\item \code{solve\_newton(bc\_type='neumann')} remains unreliable for
+genuinely multi-substrate-coupled configurations --- diverges or hangs. Does
+not affect Stage 6 (always Dirichlet).
+\item \code{c\_inf\_hat} is reused as both the Dirichlet value and the
+Neumann flux magnitude, so a zero-flux request cannot be expressed for a
+substrate with nonzero bulk concentration without a custom wrapper.
+\item \code{solve\_newton}'s return signature is a 3-tuple
+\code{(C, history, method)}; any new caller must unpack three values.
+\item Several preset cleaning decisions remain \assumed{} rather than
+verified against source (documented in \code{params.py}), notably the
+\code{rebeca} $\div100$ yield rescale and \code{A\_OVER\_D\_RATIO}.
+\end{itemize}
+
+\section{Conclusion}
+The codebase's numerical core has been subjected to an extensive validation
+campaign: closed-form ground-truth benchmarks across three geometries and two
+boundary-condition types, high-precision (50-digit) floating-point-artifact-free
+convergence confirmation, exact mass conservation, independent two-solver
+cross-validation to $\sim10^{-11}$, analytic Jacobian verification, and
+targeted stress-testing that itself surfaced and required fixing four genuine
+bugs beyond the original death-term error. Every fix was independently
+re-verified with numbers after the fact (Table~\ref{tab:testmap},
+Section~\ref{sec:neumann-fix-verify}), and two claims that could not be
+substantiated --- the production multi-substrate Neumann entry point and full
+Picard robustness --- are reported openly as \code{README.md} limitations
+rather than folded into a blanket ``resolved.''
+
+\end{document}

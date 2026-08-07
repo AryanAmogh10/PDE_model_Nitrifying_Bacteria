@@ -8,56 +8,53 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from nitrifiers.nondim import elliptic_coefficients
-from nitrifiers.elliptic import Grid, build_laplacian
+from nitrifiers.elliptic import Grid, build_laplacian, cell_volumes
 from nitrifiers.parabolic import (build_advection_matrix,
                                     build_advection_rho_jacobian,
                                     solve_parabolic, growth_rate_field, SPECIES)
 
 
-def _exact_cell_volumes(grid):
-    """Exact control-volume sizes matching build_laplacian's own normalisation
-    (see its docstring): V_i = (r_e^{p+1}-r_w^{p+1})/(p+1), half-cells at the
-    two ends. Mass conservation is a telescoping-flux identity that holds for
-    *whatever* V_i the Laplacian was normalised by -- these must match
-    build_laplacian's internal volumes exactly, not merely approximate them,
-    or this test stops checking conservation and starts checking the
-    (unrelated) size of the volume-normalisation truncation error instead."""
-    N, h, p = grid.N, grid.h, grid.p
-    r = grid.r
-    V = np.empty(N + 1)
-
-    def vol(r_w, r_e):
-        return (r_e - r_w) if p == 0 else (r_e ** (p + 1) - r_w ** (p + 1)) / (p + 1)
-
-    V[0] = vol(0.0, 0.5 * h)
-    for i in range(1, N):
-        V[i] = vol(r[i] - 0.5 * h, r[i] + 0.5 * h)
-    V[N] = vol(r[N] - 0.5 * h, r[N])
-    return V
-
-
 def test_diffusion_operator_is_exactly_mass_conservative():
+    """Weighted by elliptic.cell_volumes -- the SAME measure the operator is
+    normalised by. Mass conservation is a telescoping-flux identity that holds
+    only for that measure; weighting by any other turns this into a test of
+    volume-normalisation truncation error instead of conservation."""
     for geometry, p in [("slab", 0), ("radial", 1), ("radial", 2)]:
         grid = Grid(N=80, geometry=geometry, p=p)
-        weights = _exact_cell_volumes(grid)
+        weights = cell_volumes(grid)
         u = np.sin(np.pi * grid.r)
         Lap = build_laplacian(grid)
         assert abs(np.sum(weights * (Lap @ u))) < 1e-10
 
 
-def test_advection_operator_converges_to_mass_conservative():
-    grid_coarse = Grid(N=40, geometry="radial", p=2)
-    grid_fine = Grid(N=160, geometry="radial", p=2)
-    defects = []
-    for grid in (grid_coarse, grid_fine):
-        weights = np.where(grid.r > 0, grid.r ** grid.p, 0.0) * grid.h
-        weights[0] = (grid.h / 2) ** (grid.p + 1) / (grid.p + 1)
-        weights[-1] *= 0.5
-        u = np.sin(np.pi * grid.r)
-        rho = np.cos(np.pi * grid.r / 2)
-        Adv = build_advection_matrix(grid, rho)
-        defects.append(abs(np.sum(weights * (Adv @ u))))
-    assert defects[1] < defects[0] / 2  # first-order convergence toward exact conservation
+def test_advection_operator_is_exactly_mass_conservative():
+    """Regression test for the volume-normalisation bug in the advection
+    operator (see the module docstring): it used the approximate V ~= r^p*h,
+    which is wrong by ~2x at the OUTER boundary node, while build_laplacian
+    used exact volumes -- so the two operators conserved different measures
+    and the coupled scheme conserved neither.
+
+    Two things matter about how this is now tested, both of which the previous
+    version got wrong:
+
+      1. The probe u MUST be nonzero at r=1. The old probe was u = sin(pi*r),
+         which vanishes there -- precisely the node carrying the factor-of-2
+         error -- so the bug was invisible to it. The `+ 0.5` below is the
+         whole point of the test; removing it would silently restore the blind
+         spot.
+      2. The assertion is EXACT conservation, not convergence toward it. The
+         old test asserted only that the defect halved under refinement, which
+         a genuinely non-conservative operator can satisfy; with the exposing
+         probe the true defect did not converge to zero at all.
+    """
+    for geometry, p in [("slab", 0), ("radial", 1), ("radial", 2)]:
+        for N in (40, 160):
+            grid = Grid(N=N, geometry=geometry, p=p)
+            u = np.sin(np.pi * grid.r) + 0.5      # nonzero at r=1 -- see (1)
+            rho = np.cos(np.pi * grid.r / 2)
+            Adv = build_advection_matrix(grid, rho)
+            defect = abs(np.sum(cell_volumes(grid) * (Adv @ u)))
+            assert defect < 1e-12, (geometry, p, N, defect)
 
 
 def _uniform_r(grid):
@@ -236,7 +233,7 @@ def test_sharp_front_newton_converges_to_tolerance():
 
 if __name__ == "__main__":
     test_diffusion_operator_is_exactly_mass_conservative()
-    test_advection_operator_converges_to_mass_conservative()
+    test_advection_operator_is_exactly_mass_conservative()
     test_bacteria_stay_nonnegative_and_grow_only_where_substrate_allows()
     test_pure_decay_when_no_substrate_available()
     test_death_term_is_density_dependent_not_constant()

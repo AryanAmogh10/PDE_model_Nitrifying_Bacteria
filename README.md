@@ -88,6 +88,30 @@ inline in `params.py`.
 - **Stage 5 (parabolic)**: fully-implicit backward Euler with the complete
   Newton Jacobian, including the cross-diffusion `d(Adv(rho))/d(rho)` term
   (needed for clean convergence on sharp density fronts).
+- **Shared volume measure**: every conservative operator (`build_laplacian`,
+  `build_advection_matrix`, `build_advection_rho_jacobian`) and the mass
+  diagnostic `_total_mass` are normalised by the *same* exact control volumes,
+  `elliptic.cell_volumes`. This matters: a finite-volume operator normalised by
+  one measure but integrated against another conserves nothing. The advection
+  operator previously used the approximate `V ~= r^p*h` — wrong by ~2x at the
+  outer boundary node in **every** geometry — so diffusion and advection
+  conserved different measures and the coupled scheme conserved neither, with
+  an O(1) defect that did not vanish under refinement. Both operators are now
+  exactly conservative to machine precision (~1e-16).
+
+### 2D Cartesian extension
+
+`grid2d.py` / `elliptic2d.py` / `parabolic2d.py` / `slowfast2d.py` extend the
+same validated finite-volume + quasi-steady machinery to a 2D Cartesian domain,
+reusing `reaction_and_jacobian` verbatim (it is elementwise and already
+dimension-agnostic). Validated in `tests/test_2d.py` by two reductions to the
+1D solvers: an **exact** slab reduction (agreement to ~1e-14, i.e. solver
+tolerance rather than discretisation error) and a **radial** reduction against
+the cylindrical `p=1` solver — note 2D Cartesian radial symmetry gives
+`c_rr + (1/r)c_r`, the `p=1` operator, *not* spherical `p=2`. The deep interior
+converges to the 1D reference at 2nd order (2.2e-8 at N=160); the near-boundary
+band is 1st order because a circle cannot be represented exactly on a Cartesian
+grid (staircasing), which is a geometry limitation, not a solver defect.
 
 ## Installation
 
@@ -142,6 +166,17 @@ zonation reproduction.
 - `solve_newton`'s return signature is `(C, history, method)` — a 3-tuple, not
   2. All in-repo call sites are updated; any new caller must unpack three
   values.
+- The 2D solver has **no relaxation/PTC fallback** (there is no 2D PTC solver);
+  a degenerate solve returns `method="newton_stalled"` and the achieved
+  residual rather than being silently rescued. Callers should inspect
+  `elliptic_residual` rather than assuming every step converged.
+- The 2D solver does **not** reproduce the sector formation of the source
+  paper's Fig. 3/4. Diagnosed as a setup/parameter-regime consequence, not a
+  solver defect: the domain and boundary conditions are angularly symmetric so
+  angular modes have no forcing and only decay, and `Dhat ~ 4.2` gives a
+  diffusion length exceeding the domain. Sector formation there arises from a
+  sharp front expanding into empty space, a condition this setup never creates.
+  This has not been checked against the paper's own Fig. 3/4 parameters.
 - Parameter presets carry several documented, but unverified-against-source,
   cleaning assumptions (e.g. the `rebeca` yield rescale, `A_OVER_D_RATIO`);
   see the docstring in `params.py` for the full list.

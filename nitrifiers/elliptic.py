@@ -64,6 +64,55 @@ class Grid:
         self.r = np.linspace(0.0, 1.0, N + 1)
 
 
+def face_area(grid: Grid, r_face: float) -> float:
+    """Area of the control-volume face located at radius r_face.
+
+    r^p, except at the true geometric singularity r=0 for p>0, where the face
+    collapses to zero area. For the slab (p=0) every face has unit area
+    including the one at r=0 (r^0 = 1 identically, no geometric collapse);
+    zero flux there comes from the mirror-symmetry ghost node instead, which
+    is what the row-0 stencil already encodes.
+    """
+    p = grid.p
+    return 0.0 if (p > 0 and r_face <= 0.0) else r_face ** p
+
+
+def cell_volumes(grid: Grid) -> np.ndarray:
+    """EXACT control-volume measure of every node's cell,
+    V_i = (r_e^{p+1} - r_w^{p+1}) / (p+1), with half-cells at both ends.
+
+    THIS IS THE SINGLE SOURCE OF TRUTH for the volume normalisation of every
+    conservative operator in the 1D codebase -- build_laplacian, and (since
+    the fix recorded below) parabolic.build_advection_matrix,
+    parabolic.build_advection_rho_jacobian and parabolic._total_mass.
+
+    They must all share it. A conservative finite-volume operator normalised
+    by one measure but integrated against another conserves nothing: the
+    telescoping identity sum_i V_i*(Op @ u)_i = 0 holds only for the SAME V_i
+    the operator divided by. This is not a theoretical concern -- it was the
+    actual state of the code: build_laplacian was corrected to exact volumes,
+    but the advection operator was left normalising by the interior shortcut
+    V_i ~= r_i^p*h. That shortcut is wrong by O(h^2/r_i^2) on the first few
+    interior rows AND by a factor of ~2 at the OUTER boundary node (where it
+    uses a full cell instead of the half cell that actually exists), in every
+    geometry including the slab. The result was that diffusion conserved one
+    measure and advection another, so the coupled Stage 5 scheme conserved
+    neither; the discrepancy was O(1) and did not vanish under refinement.
+    """
+    N, h, p = grid.N, grid.h, grid.p
+    r = grid.r
+
+    def vol(r_w, r_e):
+        return (r_e - r_w) if p == 0 else (r_e ** (p + 1) - r_w ** (p + 1)) / (p + 1)
+
+    V = np.empty(N + 1)
+    V[0] = vol(0.0, 0.5 * h)                      # half-cell at the centre
+    for i in range(1, N):
+        V[i] = vol(r[i] - 0.5 * h, r[i] + 0.5 * h)
+    V[N] = vol(r[N] - 0.5 * h, r[N])              # half-cell at the outer edge
+    return V
+
+
 def build_laplacian(grid: Grid) -> sp.csr_matrix:
     """Conservative finite-volume discretisation of Lap(c) = (1/r^p) d/dr(r^p dc/dr),
     derived uniformly for every row (including r=0 and the outer boundary row) by
@@ -92,39 +141,22 @@ def build_laplacian(grid: Grid) -> sp.csr_matrix:
     once h/r_i -> 0 for the worst-affected row, i.e. slower than the
     generic O(h^2) interior rate. Using the exact V_i everywhere removes it.
     """
-    N, h, p = grid.N, grid.h, grid.p
+    N, h = grid.N, grid.h
     r = grid.r
+    V = cell_volumes(grid)          # shared exact measure -- see its docstring
     rows, cols, vals = [], [], []
 
-    def volume(r_w, r_e):
-        if p == 0:
-            return r_e - r_w
-        return (r_e ** (p + 1) - r_w ** (p + 1)) / (p + 1)
-
-    # face "area": r^p, except the true geometric singularity at r=0 itself
-    # (p>0 only -- for slab (p=0) the r=0 face has area 1 like every other
-    # face, since r^0=1 identically and there is no real geometric collapse;
-    # zero-flux there instead comes from the mirror-symmetry ghost node, which
-    # is exactly what the row-0 formula below already encodes).
-    def area(r_face):
-        return 0.0 if (p > 0 and r_face <= 0.0) else r_face ** p
-
-    # r = 0 (i = 0): half-cell [0, h/2]. Inner face area is area(0) (zero for
-    # p>0, one for slab), so only the outer face at h/2 can contribute.
-    r_e = 0.5 * h
-    V0 = volume(0.0, r_e)
-    w_e0 = area(r_e) / (h * V0)
+    # r = 0 (i = 0): half-cell [0, h/2]. The inner face has zero area for p>0,
+    # so only the outer face at h/2 can contribute.
+    w_e0 = face_area(grid, 0.5 * h) / (h * V[0])
     rows += [0, 0]
     cols += [0, 1]
     vals += [-w_e0, w_e0]
 
     # interior points i = 1..N-1: full cell [r_i-h/2, r_i+h/2], exact V_i.
     for i in range(1, N):
-        r_w = r[i] - 0.5 * h
-        r_e = r[i] + 0.5 * h
-        Vi = volume(r_w, r_e)
-        w_e = area(r_e) / (h * Vi)
-        w_w = area(r_w) / (h * Vi)
+        w_e = face_area(grid, r[i] + 0.5 * h) / (h * V[i])
+        w_w = face_area(grid, r[i] - 0.5 * h) / (h * V[i])
         rows += [i, i, i]
         cols += [i - 1, i, i + 1]
         vals += [w_w, -(w_e + w_w), w_e]
@@ -134,9 +166,7 @@ def build_laplacian(grid: Grid) -> sp.csr_matrix:
     # apply_bc below still overwrites this row when a non-zero-flux
     # (Dirichlet/Neumann) outer BC is needed -- this is only the correct
     # standalone zero-flux form.
-    r_w = r[N] - 0.5 * h
-    VN = volume(r_w, r[N])
-    w_w = area(r_w) / (h * VN)
+    w_w = face_area(grid, r[N] - 0.5 * h) / (h * V[N])
     rows += [N, N]
     cols += [N - 1, N]
     vals += [w_w, -w_w]

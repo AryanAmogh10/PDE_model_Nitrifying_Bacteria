@@ -27,12 +27,25 @@ Discretisation:
     - Cross-diffusion (advection) term: a first-order upwind finite-volume
       scheme for the flux -grad(rhohat) (bacteria move down the total-density
       gradient, away from crowding, matching the sign convention in
-      arXiv:2512.13156 Sec. 2.1/3.1 and its Appendix A discretisation), with
-      the same radial-volume weighting (including the p->0 center-cell
-      correction) as build_laplacian, so that build_advection_matrix(grid,
-      rho=0) has zero effect and the scheme conserves mass exactly under
-      zero-flux boundaries when the reaction term is switched off (checked
-      in tests/test_parabolic.py).
+      arXiv:2512.13156 Sec. 2.1/3.1 and its Appendix A discretisation),
+      normalised by the SAME exact control volumes as build_laplacian
+      (elliptic.cell_volumes), so the scheme conserves mass EXACTLY under
+      zero-flux boundaries with the reaction term switched off.
+
+      This last point was for a long time false in a way no test caught. The
+      operator used to normalise by the interior shortcut V_i ~= r_i^p*h,
+      which build_laplacian had already been corrected away from. That is
+      wrong by O(h^2/r_i^2) on the first interior rows and, more seriously, by
+      a factor of ~2 at the OUTER boundary node (full cell instead of the half
+      cell that actually exists) in every geometry including the slab. The
+      operator still telescoped exactly against its OWN volumes, so it looked
+      self-consistent -- but it meant diffusion conserved one measure and
+      advection another, and the coupled scheme conserved neither, with an
+      O(1) discrepancy that did not vanish under refinement. The regression
+      test missed it because its probe field u = sin(pi*r) vanishes at r=1,
+      exactly the node carrying the factor-of-2 error; a probe that is nonzero
+      there exposes a ~100x larger, non-converging defect. The test now uses
+      such a probe and asserts EXACT conservation.
     - Reaction term u_i*f_i(c, rhohat): the growth part g_i (Monod, function
       of the fixed c only) is precomputed once; the death part bhat_i*rhohat
       depends on rhohat = sum_i u_i and is treated FULLY IMPLICITLY (see time
@@ -92,7 +105,7 @@ import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 
-from .elliptic import Grid, build_laplacian, monod
+from .elliptic import Grid, build_laplacian, monod, cell_volumes, face_area
 
 SPECIES = ("AOB", "NOB", "CMX")
 PRIMARY = {"AOB": "NH4", "NOB": "NO2", "CMX": "NH4"}
@@ -104,26 +117,24 @@ def build_advection_matrix(grid: Grid, rho: np.ndarray) -> sp.csr_matrix:
     div(u * grad(rho)) for a FIXED rho field (linear operator in u).
     Sign convention: bacteria move down the rho gradient (away from
     crowding); see module docstring."""
-    N, h, p = grid.N, grid.h, grid.p
+    N, h = grid.N, grid.h
     r = grid.r
+    V = cell_volumes(grid)   # EXACT volumes -- shared with build_laplacian
     Npts = N + 1
     rows, cols, vals = [], [], []
 
     for i in range(N):  # face between node i and i+1
-        r_face = 0.5 * (r[i] + r[i + 1])
-        area = r_face ** p if p > 0 else 1.0
-        drho = rho[i + 1] - rho[i]
-        vel = -drho / h  # velocity across the face, positive = flow toward +r
+        area = face_area(grid, 0.5 * (r[i] + r[i + 1]))
+        vel = -(rho[i + 1] - rho[i]) / h  # positive = flow toward +r
         upwind = i if vel >= 0 else i + 1
 
-        if i == 0:
-            coef_i = -(2.0 * (p + 1) / h) * vel
-        else:
-            coef_i = -(area / (r[i] ** p * h)) * vel
-        rows.append(i); cols.append(upwind); vals.append(coef_i)
-
-        coef_ip1 = (area / (r[i + 1] ** p * h)) * vel
-        rows.append(i + 1); cols.append(upwind); vals.append(coef_ip1)
+        # cell i's EAST face and cell (i+1)'s WEST face are the same face, so
+        # the two contributions carry equal-and-opposite flux and cancel in the
+        # V-weighted sum -> exact conservation. The special-cased row 0
+        # coefficient 2*(p+1)/h that used to live here is not lost: it is
+        # exactly face_area(h/2)/V[0], so the general formula reproduces it.
+        rows.append(i); cols.append(upwind); vals.append(-(area / V[i]) * vel)
+        rows.append(i + 1); cols.append(upwind); vals.append((area / V[i + 1]) * vel)
 
     return sp.csr_matrix((vals, (rows, cols)), shape=(Npts, Npts))
 
@@ -150,15 +161,15 @@ def build_advection_rho_jacobian(grid: Grid, u_i: np.ndarray,
     omission was what made the earlier scheme only a *modified* Newton, which
     stalled at ~1e-4 residual on sharp fronts; including it restores true
     Newton convergence there."""
-    N, h, p = grid.N, grid.h, grid.p
+    N, h = grid.N, grid.h
     r = grid.r
+    V = cell_volumes(grid)   # EXACT volumes -- must match build_advection_matrix
     Npts = N + 1
     rows, cols, vals = [], [], []
     for f in range(N):
-        r_face = 0.5 * (r[f] + r[f + 1])
-        area = r_face ** p if p > 0 else 1.0
-        a_f = (2.0 * (p + 1) / h) if f == 0 else (area / (r[f] ** p * h))
-        c_f = area / (r[f + 1] ** p * h)
+        area = face_area(grid, 0.5 * (r[f] + r[f + 1]))
+        a_f = area / V[f]
+        c_f = area / V[f + 1]
         vel = -(rho[f + 1] - rho[f]) / h
         s = f if vel >= 0 else f + 1
         w = u_i[s] / h
@@ -308,12 +319,13 @@ def solve_parabolic(coeffs: dict, C: dict, U0: dict, grid: Grid,
 
 
 def _total_mass(grid: Grid, U: dict) -> float:
-    """Radial-volume-weighted total bacterial mass, sum over species."""
-    r, h, p = grid.r, grid.h, grid.p
-    weights = np.where(r > 0, r ** p, 0.0) * h
-    weights[0] = (h / 2) ** (p + 1) / (p + 1) if p > 0 else h / 2
-    weights[-1] *= 0.5  # half-cell at the outer boundary node
-    total = 0.0
-    for sp_name in SPECIES:
-        total += np.sum(weights * U[sp_name])
-    return total
+    """Control-volume-weighted total bacterial mass, summed over species.
+
+    Uses the SAME exact volumes the operators are normalised by (see
+    elliptic.cell_volumes). It previously used the approximate weights
+    r^p*h with an ad-hoc halving of the last entry, which did not match
+    either operator's normalisation -- so the reported "mass" was not the
+    quantity the discrete scheme actually conserves.
+    """
+    V = cell_volumes(grid)
+    return float(sum(np.sum(V * U[sp_name]) for sp_name in SPECIES))
