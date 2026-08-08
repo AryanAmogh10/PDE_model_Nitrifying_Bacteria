@@ -105,11 +105,16 @@ import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 
-from .elliptic import Grid, build_laplacian, monod, cell_volumes, face_area
-
-SPECIES = ("AOB", "NOB", "CMX")
-PRIMARY = {"AOB": "NH4", "NOB": "NO2", "CMX": "NH4"}
-SECONDARY = {"AOB": "O2", "NOB": "O2", "CMX": "O2"}
+from .elliptic import (Grid, build_laplacian, monod, cell_volumes, face_area,
+                        SPECIES, PRIMARY, SECONDARY)
+# SPECIES/PRIMARY/SECONDARY used to be redefined here as a second, independent
+# copy of the same species -> substrate mapping already in elliptic.py -- the
+# same "two places representing one fact" pattern that caused the Neumann-target
+# (A5) and volume-normalisation (A9) bugs. Reproduced live during an audit: a
+# one-off edit to elliptic.PRIMARY had no effect on this module's copy and
+# only surfaced as a KeyError deep in growth_rate_field. Now a single source
+# (elliptic.py), imported here -- matching the pattern already used correctly
+# by the 2D modules for SPECIES/SUBSTRATES.
 
 
 def build_advection_matrix(grid: Grid, rho: np.ndarray) -> sp.csr_matrix:
