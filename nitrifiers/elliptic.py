@@ -34,11 +34,14 @@ import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 
-from .nondim import SUBSTRATES  # ("NH4", "NO2", "NO3", "O2")
-
-SPECIES = ("AOB", "NOB", "CMX")
-PRIMARY = {"AOB": "NH4", "NOB": "NO2", "CMX": "NH4"}
-SECONDARY = {"AOB": "O2", "NOB": "O2", "CMX": "O2"}
+# SPECIES, PRIMARY, SECONDARY used to be redefined here as a second copy of the
+# same species/substrate facts already in nondim.py (which itself sources
+# SPECIES from params.py); a matching duplicate was independently found between
+# this module and parabolic.py. Both were the same "same fact, defined twice"
+# pattern that caused the Neumann-target and volume-normalisation bugs
+# elsewhere in this project. nondim.py is lower in the import chain (this
+# module already depends on it for SUBSTRATES), so it is the single source.
+from .nondim import SUBSTRATES, SPECIES, PRIMARY, SECONDARY  # noqa: F401
 
 _EPS_FLOOR = 1e-12  # floor to keep Monod terms well-defined for c <~ 0 during iteration
 

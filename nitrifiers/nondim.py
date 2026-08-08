@@ -99,8 +99,15 @@ from .params import (
     A_OVER_D_RATIO, BIOFILM_DENSITY_KG_M3, BIOMASS_MW_G_MOL,
 )
 
-# which substrate is the "primary" (nitrogen) growth-limiting one for each species
-PRIMARY_SUBSTRATE = {"AOB": "NH4", "NOB": "NO2", "CMX": "NH4"}
+# species -> substrates it actually consumes (Monod-limiting), (primary, secondary).
+# This is the single source of truth for PRIMARY/SECONDARY: elliptic.py imports
+# them from here rather than hardcoding a second copy (that duplication -- found
+# during an audit, alongside an identical one between elliptic.py and
+# parabolic.py -- was the same "same fact defined twice" pattern that caused the
+# Neumann-target and volume-normalisation bugs elsewhere in this project).
+CONSUMED_SUBSTRATES = {"AOB": ("NH4", "O2"), "NOB": ("NO2", "O2"), "CMX": ("NH4", "O2")}
+PRIMARY = {name: pair[0] for name, pair in CONSUMED_SUBSTRATES.items()}
+SECONDARY = {name: pair[1] for name, pair in CONSUMED_SUBSTRATES.items()}
 
 
 def _u_ref_uM() -> float:
@@ -148,7 +155,7 @@ def nondimensionalize(preset_name: str) -> NondimResult:
 
     species_out = {}
     for name, spec in species.items():
-        primary = PRIMARY_SUBSTRATE[name]
+        primary = PRIMARY[name]
         Dhat = spec["d"] / (r_max * L_m ** 2)
         Ahat = A_OVER_D_RATIO * Dhat
         Khat = {sub: k / c_ref for sub, k in spec["K"].items()}
@@ -171,8 +178,6 @@ def nondimensionalize(preset_name: str) -> NondimResult:
     )
 
 
-# species -> substrates it actually consumes (Monod-limiting), in a fixed order
-CONSUMED_SUBSTRATES = {"AOB": ("NH4", "O2"), "NOB": ("NO2", "O2"), "CMX": ("NH4", "O2")}
 # which consumed substrate produces which downstream substrate, and the (molar) beta key
 PRODUCTION = {"AOB": ("NO2", "AOB_to_NO2"), "NOB": ("NO3", "NOB_to_NO3"), "CMX": ("NO3", "CMX_to_NO3")}
 
@@ -233,7 +238,7 @@ def elliptic_coefficients(preset_name: str) -> dict:
             D_j = p["substrates"][sub]["D"]
             Y_ij = spec["Y"][sub]
             Lambda[name][sub] = (r.L_m ** 2 * r.u_ref_uM * spec["r"]) / (D_j * c_ref * Y_ij)
-        source_sub = PRIMARY_SUBSTRATE[name]
+        source_sub = PRIMARY[name]
         produced_sub, _ = PRODUCTION[name]
         D_prod = p["substrates"][produced_sub]["D"]
         Y_source = spec["Y"][source_sub]
