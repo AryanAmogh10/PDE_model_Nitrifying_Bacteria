@@ -349,23 +349,24 @@ over-trust any single green result here.
   correct but had never actually been tested; it now has been. See B8.
 - **D6.** Preset cleaning assumptions remain **ASSUMED**: the `rebeca` ÷100 yield
   rescale, and `A_OVER_D_RATIO = 10`.
-- **D7 (new, found this round).** `elliptic.py` and `parabolic.py` independently
-  define their **own separate copies** of `SPECIES`, `PRIMARY`, `SECONDARY`
-  (identical species→substrate mappings, written twice). Same failure mode as
-  A5/A9: two pieces of code representing the same fact, built separately, that
-  can silently drift apart. **Reproduced live** this round: patching
-  `elliptic.PRIMARY` for an experiment had zero effect on `parabolic.PRIMARY`
-  since they are separate dict literals, not shared references — the parabolic
-  solver kept using the old (stale) mapping until it hit a `KeyError`. Currently
-  both copies hold identical values, so nothing is *currently* wrong, but the
-  duplication itself is the same structural risk A5/A9 were. The 2D modules
-  (`elliptic2d.py`, `parabolic2d.py`, `slowfast2d.py`) do **not** add a third
-  copy — they correctly import `SPECIES`/`SUBSTRATES` from the 1D modules —
-  but they are exposed to this pre-existing split since `elliptic2d.py` calls
-  `elliptic.reaction_and_jacobian` (uses `elliptic.PRIMARY`) while
-  `parabolic2d.py` calls `parabolic.growth_rate_field` (uses
-  `parabolic.PRIMARY`). **Not fixed — flagged only, per the "report, don't
-  silently fix" convention used throughout this audit.**
+- ~~**D7.** duplicated `SPECIES`/`PRIMARY`/`SECONDARY`~~ — **FIXED (two commits).**
+  Originally found: `elliptic.py` and `parabolic.py` independently defined
+  their own separate copies of `SPECIES`/`PRIMARY`/`SECONDARY` (identical
+  species→substrate mappings, written twice) — reproduced live, patching
+  `elliptic.PRIMARY` had zero effect on `parabolic.PRIMARY` since they were
+  separate dict literals, surfacing only as a downstream `KeyError`. First
+  commit consolidated `parabolic.py` onto `elliptic.py`'s copy. Tracing the
+  root further surfaced **two more** copies, fixed in a second commit:
+  `nondim.py` had its own `PRIMARY_SUBSTRATE`, itself a partial duplicate of
+  `nondim.py`'s own `CONSUMED_SUBSTRATES` (same file, same fact, twice); and
+  `elliptic.py` hardcoded `SPECIES`/`PRIMARY`/`SECONDARY` rather than importing
+  them despite already depending on `nondim.py` for `SUBSTRATES`. Single source
+  is now `nondim.py`'s `CONSUMED_SUBSTRATES` (`PRIMARY`/`SECONDARY` derived from
+  it), imported by `elliptic.py`, transitively available to `parabolic.py`
+  unchanged. **Correction to the original framing:** `params.py`'s own
+  `SPECIES` was never a rogue duplicate in this sense — it is the legitimate
+  root definition, and `nondim.py` already correctly imported it from there;
+  it needed no change. 9/9 suite re-run and passing after each commit.
 - **D8 (checked, clean).** The 2D volume/area computation does **not** repeat
   the A9 pattern. `Grid2D.dx`/`dy`/`V` are computed exactly once in
   `Grid2D.__init__`; `elliptic2d.py` and `parabolic2d.py` both read from that
