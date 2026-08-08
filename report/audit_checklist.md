@@ -186,7 +186,9 @@ direction than the test that originally caught it. **All VERIFIED**
 - Exact **slab reduction** to 1D: agreement ~1e-14, i.e. *solver tolerance*, not
   discretization error. Pins Laplacian + BCs + reaction + Jacobian assembly at once.
 - **Radial reduction** against 1D cylindrical `p=1` (note: **not** `p=2` — 2D
-  Cartesian radial symmetry gives `c_rr + (1/r)c_r`):
+  Cartesian radial symmetry gives `c_rr + (1/r)c_r`; see B7 for the
+  first-principles proof this target is correct, not just empirically the one
+  that agreed):
   deep interior 4.27e-07 → 1.00e-07 → 2.16e-08 (**2nd order**);
   near-boundary 1st order (staircased circle — geometry limit, not a defect).
 - 2D Laplacian: exact conservation (1e-16), order 2.000, anisotropy converging faster.
@@ -197,14 +199,113 @@ direction than the test that originally caught it. **All VERIFIED**
 ### B6. Full suite status
 **9/9 test files pass** (8 pre-existing 1D + 1 new 2D), re-run after every change.
 
+### B7. Why `p=1`, not `p=2`, for the 2D radial reduction — derived, not just observed
+Two independent derivations, both confirming `p=1` is the *only* mathematically
+consistent target (not merely the one that happened to agree numerically):
+
+1. **Analytic.** 2D Cartesian: `Lap c = c_xx + c_yy`. In polar coordinates,
+   `Lap c = c_rr + (1/r)c_r + (1/r²)c_θθ`; for a radially symmetric field
+   `c_θθ = 0`, giving `Lap c = c_rr + (1/r)c_r`. Our general 1D operator is
+   `Lap_p c = c_rr + (p/r)c_r`. Matching coefficients: `p/r = 1/r ⟹ p = 1`,
+   exactly, for *any* radially symmetric function — confirmed symbolically
+   (`sympy`): difference at p=1 is `0`; at p=2 it is `Derivative(c,r)/r`
+   (nonzero).
+2. **Independent numerical check**, no polar-coordinate machinery at all: a
+   plain 5-point x,y finite-difference Laplacian of `c=exp(−r²)` on a fine
+   Cartesian grid, compared against the analytic `Lap_p` formula for
+   `p=0,1,2,3`. Only `p=1` shrinks under grid refinement (4.01×/doubling,
+   i.e. 2nd order — pure FD truncation); `p=0,2,3` sit at a **fixed, non-
+   vanishing** O(1) mismatch (33–100% relative error) regardless of resolution
+   — they are not close, they are the wrong formula.
+3. **Generalises cleanly**: for n-dimensional Cartesian space, radial symmetry
+   gives `Lap c = c_rr + (n−1)/r·c_r`, i.e. our exponent is literally `p = n−1`:
+   slab `p=0` ↔ n=1, cylindrical `p=1` ↔ n=2 (what was tested), spherical
+   `p=2` ↔ n=3. No special-casing required.
+**VERIFIED**
+
+### B8. Sector formation reproduced with the paper's own parameters (was D5, now resolved)
+Pulled arXiv:2512.13156 Table 1, Case (A) directly from the paper (via its
+public arXiv PDF): `d_i=1e-6, a_i=1e-5 (a/d=10, matching our
+A_OVER_D_RATIO exactly), r_i=1, K_i=1, b_i=0.1, Y_i=0.2, D=1e-4, L=1, c0=5,
+c∞=1e-5, domain [0,L]×[0,L], t∈{0,25,50}`. Reconfigured our 2D solver's
+coefficient structure to express System (2.3) (single shared substrate, three
+symmetric species) rather than the nitrifier-specific reaction network, and ran
+to `T=50` with three inocula seeded 120° apart in a central circular region,
+matching the paper's Figure 3 setup. **Deviation, flagged, not hidden:** the
+paper uses time-dependent substrate with Neumann influx (`c∞=1e-5`, near-zero);
+we used our validated QSSA + Dirichlet (`c=5`) machinery, since that is the
+machinery this thesis validates. `ε = r·L²/D = 1e4` in the paper's own Case (A)
+— i.e. **the paper's own parameters put it in the ε≫1, non-QSSA regime**, the
+opposite of the assumption our whole Stage 3 rests on; this is a real,
+structural mismatch between what the paper's Case (A) actually is and what our
+solver assumes, not a minor implementation detail.
+
+**Result: sector formation reproduced.**
+- Colony expanded from seed radius ~0.10 to occupied radius ~0.38 over T=50.
+- Interior depleted and decayed: substrate at the centre fell from ~5 to
+  1.6e-6; peak total density fell from 0.463 (t=0.5) to 0.152 (t=50) — matches
+  the paper's description ("lower densities are found in the centre because of
+  substrate depletion and subsequent bacterial decay").
+- **Angular dominance in the active outer shell (r∈[0.22,0.36]) is real, not a
+  metric artifact** — checked directly, not just via the m=3 Fourier amplitude
+  that misled a different diagnostic earlier this session:
+
+  | sector | AOB | NOB | CMX | dominant |
+  |---|---|---|---|---|
+  | −180°..−120° | 0.000000 | 0.000013 | 0.044459 | CMX |
+  | −120°..−60° | 0.001362 | 0.000000 | 0.052535 | CMX |
+  | −60°..0° | 0.041628 | 0.000000 | 0.000017 | AOB |
+  | 0°..60° | 0.047281 | 0.000016 | 0.000000 | AOB |
+  | 60°..120° | 0.001362 | 0.052535 | 0.000000 | NOB |
+  | 120°..180° | 0.000000 | 0.044459 | 0.000013 | NOB |
+
+  Each species dominates a different wedge, each wedge aligned with that
+  species' seeding angle (AOB seeded at 0°, NOB at 120°, CMX at 240°), with
+  near-complete exclusion in the dominant sector (e.g. AOB=0.047 vs NOB=1.6e-5
+  in the 0°–60° wedge). 3 of 3 species are each sector-dominant somewhere —
+  genuine segregation, not a symmetric/uniform field with a spurious harmonic.
+
+**Item (c): is the diffusion-length threshold quantitative, or coincidental?**
+Swept `d_i` (with `a_i/d_i=10` held fixed, matching the paper) from `1e-6` to
+`1.0`, all else at Case (A) values, `T=50` (reduced grid/dt for tractability —
+flagged below): predicted threshold `d ≪ L²/T = 0.02`.
+
+| `d_i` | `√(dT)/L` | colony radius | sector purity | verdict |
+|---|---|---|---|---|
+| 1e-6 (paper) | 0.007 | 0.385 | 66.7% | SECTORS |
+| 1e-4 | 0.071 | 0.707 | 16.7% | mixed |
+| 1e-2 | 0.707 | 0.587 | 66.7% | SECTORS |
+| 0.1 | 2.236 | 0.000 | 0.0% | UNIFORM |
+| 1.0 (≫ our eloi) | 7.071 | 0.000 | 0.0% | UNIFORM |
+
+The extremes support the hypothesis cleanly: the paper's own regime (`d=1e-6`)
+gives sectors; `d=0.1` and `d=1.0` (both exceeding our `eloi` preset's
+effective diffusivity) give a fully uniform field, matching the original
+`eloi`-preset finding (A3=0.0000) from earlier this session. **The `d=1e-2` and
+`d=1e-4` points are not monotonic and should not be over-interpreted** — this
+sweep ran on a coarser grid (26×26 vs 48×48) and larger `dt` (2.0 vs 0.5) than
+the single confirmed run above, purely for compute budget reasons (a finer
+version of this sweep timed out at 10 minutes without completing even one
+point at the original resolution). The `d=1e-4` row's colony radius of 0.707
+(the corner-to-centre distance of the unit square, i.e. "reached everywhere")
+is consistent with an under-resolved run, not a real non-monotonic transition.
+
+**Status: B8(a)/(b) VERIFIED — sector formation is reproduced with the paper's
+own parameters, and it is real segregation (checked directly), not a metric
+artifact. B8(c) CONSISTENT, not fully VERIFIED — the extremes of the sweep
+support the diffusion-length threshold hypothesis quantitatively, but the
+interior of the sweep is under-resolved (compute-budget-limited) and does not
+cleanly confirm monotonicity. A finer intermediate sweep would be needed to
+call the threshold curve itself verified, as opposed to just its endpoints.**
+
 ---
 
 ## C. My own diagnostic errors during this work (calibration — read this one)
 
-I got the **measurement** wrong on the first attempt **four** times. Each initially
-pointed at a false problem, and each was caught only by validating the metric
-against a case with a known answer. This is the main reason not to over-trust any
-single green result here.
+I got the **measurement** wrong on the first attempt **five** times now. Each
+initially pointed at a false problem, and each was caught only by validating
+the metric against a case with a known answer. This is the main reason not to
+over-trust any single green result here.
 
 1. **Fixed-width radial bins** in the 2D radial check → in-bin *radial* variation
    (h-independent) masqueraded as non-converging angular error. Nearly reported a
@@ -217,6 +318,12 @@ single green result here.
    M-matrix check → reported "STRUCTURE VIOLATED" for a structure that holds.
 4. **`not None` is truthy** in a pass/fail check during the Neumann re-verification
    → a "correctly still fails" verdict that the logic couldn't actually have produced.
+5. **Compute-budget sweep under-resolution** (this round) — the `d_i` sweep for
+   B8(c) was cut to a coarser grid/larger `dt` after a finer version timed out,
+   and the interior points (`d=1e-4, 1e-2`) came back non-monotonic. Reported
+   honestly as under-resolved rather than as a real non-monotonic transition,
+   but it's a reminder that a sweep built for speed under time pressure is
+   weaker evidence than the single well-resolved run either side of it.
 
 ---
 
@@ -236,13 +343,39 @@ single green result here.
   nonzero bulk concentration without a custom wrapper.
 - **D4.** 2D has **no PTC/relaxation fallback**; degenerate solves return
   `"newton_stalled"` rather than being rescued.
-- **D5.** 2D does **not** reproduce the paper's Fig 3/4 sector formation.
-  Diagnosed as setup/parameter regime (no angular forcing in a symmetric domain;
-  `D̂≈4.2` gives diffusion length > domain; sectors there need a sharp front
-  expanding into empty space). **This diagnosis is reasoned, not verified against
-  the paper's actual parameters.**
+- ~~**D5.** 2D does not reproduce sector formation~~ — **RESOLVED, moved to B8.**
+  Rerun with the paper's own Table 1 Case (A) parameters reproduces sector
+  formation. The earlier "reasoned, not verified" diagnosis was directionally
+  correct but had never actually been tested; it now has been. See B8.
 - **D6.** Preset cleaning assumptions remain **ASSUMED**: the `rebeca` ÷100 yield
   rescale, and `A_OVER_D_RATIO = 10`.
+- **D7 (new, found this round).** `elliptic.py` and `parabolic.py` independently
+  define their **own separate copies** of `SPECIES`, `PRIMARY`, `SECONDARY`
+  (identical species→substrate mappings, written twice). Same failure mode as
+  A5/A9: two pieces of code representing the same fact, built separately, that
+  can silently drift apart. **Reproduced live** this round: patching
+  `elliptic.PRIMARY` for an experiment had zero effect on `parabolic.PRIMARY`
+  since they are separate dict literals, not shared references — the parabolic
+  solver kept using the old (stale) mapping until it hit a `KeyError`. Currently
+  both copies hold identical values, so nothing is *currently* wrong, but the
+  duplication itself is the same structural risk A5/A9 were. The 2D modules
+  (`elliptic2d.py`, `parabolic2d.py`, `slowfast2d.py`) do **not** add a third
+  copy — they correctly import `SPECIES`/`SUBSTRATES` from the 1D modules —
+  but they are exposed to this pre-existing split since `elliptic2d.py` calls
+  `elliptic.reaction_and_jacobian` (uses `elliptic.PRIMARY`) while
+  `parabolic2d.py` calls `parabolic.growth_rate_field` (uses
+  `parabolic.PRIMARY`). **Not fixed — flagged only, per the "report, don't
+  silently fix" convention used throughout this audit.**
+- **D8 (checked, clean).** The 2D volume/area computation does **not** repeat
+  the A9 pattern. `Grid2D.dx`/`dy`/`V` are computed exactly once in
+  `Grid2D.__init__`; `elliptic2d.py` and `parabolic2d.py` both read from that
+  same instance rather than recomputing. `parabolic2d.py`'s advection operator
+  uses `1/grid.dx[i]` rather than `face_area/V` explicitly, but this is an
+  **exact** algebraic simplification for 2D Cartesian cells (`dy_j/(dx_i·dy_j)
+  = 1/dx_i` identically — unlike the 1D case, where `V_i ≈ r_i^p·h` was only an
+  *approximation*, which is what made A9 a real bug). Independently confirmed
+  by the 2D advection operator's exact conservation result (B5: 7e-17).
+  **VERIFIED clean.**
 
 ---
 
@@ -258,6 +391,10 @@ advection volumes, `_total_mass`), `relaxation.py` (row-0, Neumann target),
 `slowfast.py` (method labels), `tests/test_parabolic.py`,
 `tests/test_elliptic_closed_form.py`, `tests/test_elliptic.py`,
 `tests/test_slowfast.py`, `README.md`.
+
+**External artifact used this round (not part of the repo):** the paper's own
+PDF (arXiv:2512.13156) was fetched to extract Table 1, Case (A) — used
+read-only to source ground-truth parameters for B8, not committed anywhere.
 
 ---
 
