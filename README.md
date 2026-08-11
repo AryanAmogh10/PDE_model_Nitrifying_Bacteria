@@ -38,9 +38,9 @@ step.
 
 ### Parameter presets
 
-- **`toy`** — round numbers, for solver development and unit tests.
-- **`rebeca`** — rough estimate from an e-mail (`parameters_nitrifiers_clean.json`).
-- **`eloi`** — thermodynamics/literature-derived kinetics (Martinez-Rabert et al.).
+- **`toy`** -- round numbers, for solver development and unit tests.
+- **`rebeca`** -- rough estimate from an e-mail (`parameters_nitrifiers_clean.json`).
+- **`eloi`** -- thermodynamics/literature-derived kinetics (Martinez-Rabert et al.).
 
 All cleaning/unit decisions on the raw parameter sources are documented
 inline in `params.py`.
@@ -49,36 +49,36 @@ inline in `params.py`.
 
 - Finite-volume discretization on a 1D radial/slab grid, with **exact**
   control-volume weighting at every node (including the domain center,
-  `r=0`) — verified 2nd-order accurate via closed-form (cosh/Bessel/sinh)
+  `r=0`) -- verified 2nd-order accurate via closed-form (cosh/Bessel/sinh)
   benchmarks and cross-checked against a 50-digit `mpmath` reference to rule
   out floating-point artifacts at fine grids.
 - **Stage 3 (elliptic)**: full Newton with backtracking line search and
   non-negativity projection is the primary solver. A Picard/fixed-point
   solver is also implemented but does **not** converge for the reaction
   stiffness of the `eloi` preset without the `rhs[0]=0` center-decoupling
-  workaround still present in the code — it is kept for reference/weaker
+  workaround still present in the code -- it is kept for reference/weaker
   regimes, not relied on.
 - **`solve_newton` Neumann support**: both boundary condition types are
   implemented (`bc_type="dirichlet"` / `"neumann"`); the Neumann row's
   residual target correctly reflects the requested flux value (verified
   against the closed-form linear-reaction Neumann solutions,
-  `c(r) = A*cosh/I0/sinh(kappa*r)` per geometry, with `A` fixed by the flux —
+  `c(r) = A*cosh/I0/sinh(kappa*r)` per geometry, with `A` fixed by the flux --
   see `test_nonzero_flux_neumann_matches_closed_form`). **Caveat:** this is
   verified only via a mixed-BC construction (Dirichlet for O2/NO2/NO3, Neumann
   for NH4); the standard entry point with `bc_type="neumann"` applied to *all
   four coupled substrates simultaneously* remains unreliable (diverges or
-  hangs on realistic coupled configurations) — a separate, still-open
+  hangs on realistic coupled configurations) -- a separate, still-open
   conditioning issue, not something fixed here. Stage 6 (`slowfast.py`) always
   uses Dirichlet and is unaffected.
 - **`solve_newton` robustness guards**: two internal safeguards, both
   triggerable independently and both reported honestly via the returned
-  `method` string (`"newton"`, `"newton_inner_relax_fallback"`, or — one level
-  up, from `slowfast.py::solve_c_given_u` — `"outer_relaxation_backstop"`):
+  `method` string (`"newton"`, `"newton_inner_relax_fallback"`, or -- one level
+  up, from `slowfast.py::solve_c_given_u` -- `"outer_relaxation_backstop"`):
   (1) a physical-plausibility upper bound on concentrations, rejecting
   backtracking steps that reduce the residual but land on a spurious,
   unphysical root; (2) an automatic fallback to `relaxation.solve_relaxation`
   (targeting the *caller's own* `tol`, not a hardcoded default) when the
-  Newton Jacobian is genuinely singular — e.g. a substrate correctly driven to
+  Newton Jacobian is genuinely singular -- e.g. a substrate correctly driven to
   exactly 0 under a sealed (zero-flux) boundary. Neither guard affects normal
   Dirichlet operation (confirmed: zero regressions across the full test
   suite).
@@ -93,8 +93,8 @@ inline in `params.py`.
   diagnostic `_total_mass` are normalised by the *same* exact control volumes,
   `elliptic.cell_volumes`. This matters: a finite-volume operator normalised by
   one measure but integrated against another conserves nothing. The advection
-  operator previously used the approximate `V ~= r^p*h` — wrong by ~2x at the
-  outer boundary node in **every** geometry — so diffusion and advection
+  operator previously used the approximate `V ~= r^p*h` -- wrong by ~2x at the
+  outer boundary node in **every** geometry -- so diffusion and advection
   conserved different measures and the coupled scheme conserved neither, with
   an O(1) defect that did not vanish under refinement. Both operators are now
   exactly conservative to machine precision (~1e-16).
@@ -107,7 +107,7 @@ reusing `reaction_and_jacobian` verbatim (it is elementwise and already
 dimension-agnostic). Validated in `tests/test_2d.py` by two reductions to the
 1D solvers: an **exact** slab reduction (agreement to ~1e-14, i.e. solver
 tolerance rather than discretisation error) and a **radial** reduction against
-the cylindrical `p=1` solver — note 2D Cartesian radial symmetry gives
+the cylindrical `p=1` solver -- note 2D Cartesian radial symmetry gives
 `c_rr + (1/r)c_r`, the `p=1` operator, *not* spherical `p=2`. The deep interior
 converges to the 1D reference at 2nd order (2.2e-8 at N=160); the near-boundary
 band is 1st order because a circle cannot be represented exactly on a Cartesian
@@ -163,9 +163,9 @@ zonation reproduction.
   regression-tested and converges cleanly at moderate reaction-rate scales.
   **Remaining, honestly-characterized limitation:** that same coupled
   configuration does not converge at the `eloi` preset's realistic stiff
-  coefficients — confirmed via direct SVD to be a genuinely near-singular
+  coefficients -- confirmed via direct SVD to be a genuinely near-singular
   Jacobian there (condition number ~4.3e16), not a solver defect.
-- `solve_newton`'s return signature is `(C, history, method)` — a 3-tuple, not
+- `solve_newton`'s return signature is `(C, history, method)` -- a 3-tuple, not
   2. All in-repo call sites are updated; any new caller must unpack three
   values.
 - The 2D solver has **no relaxation/PTC fallback** (there is no 2D PTC solver);
@@ -179,14 +179,14 @@ zonation reproduction.
   (checked directly per-sector, not via a Fourier-mode proxy that can miss the
   seeded pattern). Deviation flagged, not hidden: the paper uses a
   time-dependent substrate with near-zero Neumann influx; this reproduction
-  uses the project's validated QSSA + Dirichlet machinery instead — the
+  uses the project's validated QSSA + Dirichlet machinery instead -- the
   paper's own Case (A) is actually outside the epsilon-small regime that QSSA
   assumes (`eps = r*L^2/D = 1e4` there), a structural mismatch worth noting on
   its own. The sector/uniform transition is a real, resolution-independent
   effect: a bisection sweep (`report/item4_diffusion_threshold_sweep.py`) at
   28x28 resolution located it at `d_i ~ 4.9e-4`, but a direct grid-refinement
   check (`report/item4b_threshold_mechanism.py`, 40x40 and 56x56) showed that
-  estimate was under-resolved and biased ~1.8x high — the resolution-corrected
+  estimate was under-resolved and biased ~1.8x high -- the resolution-corrected
   threshold is `d_i ~ 2.7e-4` (40x40/56x56 agree). The naive `d << L^2/T`
   scaling estimate (using domain size) is decisively wrong regardless of
   timescale choice (`Da = r*L_domain^2/d ~ 3650` at the corrected threshold,
@@ -197,12 +197,12 @@ zonation reproduction.
   consistent with an angular pattern-formation/mode-selection effect (whether
   the seeded `m=3` perturbation grows or decays) rather than a simple
   diffusion-length-vs-domain-size balance, but the linear-stability analysis
-  that would nail this down was not attempted — see `report/audit_checklist.md`
+  that would nail this down was not attempted -- see `report/audit_checklist.md`
   B8/ITEM 4 for the full investigation, including what was ruled out.
 - Parameter presets carry documented cleaning assumptions (`params.py`
   docstring, note 1 and note 7). `A_OVER_D_RATIO = 10` is **VERIFIED**: it
   exactly matches the `a_i/d_i` ratio used in arXiv:2512.13156's own Table 1
-  Case (A) toy simulations. The `rebeca` preset's ÷100 yield rescale remains
+  Case (A) toy simulations. The `rebeca` preset's /100 yield rescale remains
   **ASSUMED** (a plausible units-slip correction, not independently
   confirmed against the original source) and is **not merely cosmetic**: a
   sensitivity check (`report/item3_yield_sensitivity.py`) found that reverting
@@ -219,7 +219,7 @@ them independently rather than trusting the prose:
 | Script | What it reproduces |
 |---|---|
 | `report/item2_wave_speed.py` | Paper Sec. 4.3 travelling-wave benchmark (measured `v_bar` vs. the paper's 0.8396, closed-form `v_min` vs. 0.0018) |
-| `report/item3_yield_sensitivity.py` | Sensitivity of Stage 6's qualitative conclusions to the `rebeca` preset's ÷100 yield rescale |
+| `report/item3_yield_sensitivity.py` | Sensitivity of Stage 6's qualitative conclusions to the `rebeca` preset's /100 yield rescale |
 | `report/item4_diffusion_threshold_sweep.py` | Bisection-refined diffusion-length threshold for 2D sector formation |
 | `report/item4b_threshold_mechanism.py` | Grid-refinement check + advection-strength sweep investigating *why* the naive `d<<L^2/T` scaling missed the ITEM 4 threshold |
 | `report/item5_adversarial_reverification.py` | 3 load-bearing claims (`v_min` formula, `v_bar`, 2D Laplacian conservation), each re-derived from scratch with no import of `nitrifiers` |
@@ -237,7 +237,7 @@ python report/item5_adversarial_reverification.py       # ~1 min
 `report/audit_checklist.md` is the running record of every claim's
 verification status (`VERIFIED` / `CONSISTENT` / `ASSUMED`), including the
 ones that turned out to be genuine, honestly-characterized discrepancies
-rather than confirmations — see B8/ITEM 4 for an example where a specific
+rather than confirmations -- see B8/ITEM 4 for an example where a specific
 quantitative prediction was contradicted by ~2 orders of magnitude while the
 underlying qualitative claim held up. `report/progress_report.tex` and
 `report/teaching_summary.md` are longer-form narrative writeups of the same
@@ -247,8 +247,8 @@ material.
 
 See [`CITATION.cff`](CITATION.cff). If you use this code, please also cite
 the source model paper below. For a specific reproducible snapshot, cite a
-tagged release (`git tag`) rather than an untagged commit — see "Archival"
-below. **No `LICENSE` file exists in this repository yet** — `CITATION.cff`
+tagged release (`git tag`) rather than an untagged commit -- see "Archival"
+below. **No `LICENSE` file exists in this repository yet** -- `CITATION.cff`
 intentionally omits a `license` field rather than guessing one; add a license
 file and update `CITATION.cff` before treating any release as reusable by
 others under specific terms.
@@ -260,7 +260,7 @@ milestones (`git tag -l`) so that a specific, reproducible state of the code
 can be referenced independently of ongoing development on `main`. Archiving a
 tagged release on [Zenodo](https://zenodo.org/) (which mints a permanent DOI
 for a GitHub release) is **optional** and has not been done for this
-repository — if a DOI is needed (e.g. for a thesis/paper citation), enabling
+repository -- if a DOI is needed (e.g. for a thesis/paper citation), enabling
 the Zenodo GitHub integration on a tagged release is the standard route; it
 is not required for the code or its validation record to be usable as-is.
 
