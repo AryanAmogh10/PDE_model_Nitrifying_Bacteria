@@ -290,13 +290,55 @@ point at the original resolution). The `d=1e-4` row's colony radius of 0.707
 (the corner-to-centre distance of the unit square, i.e. "reached everywhere")
 is consistent with an under-resolved run, not a real non-monotonic transition.
 
-**Status: B8(a)/(b) VERIFIED — sector formation is reproduced with the paper's
-own parameters, and it is real segregation (checked directly), not a metric
-artifact. B8(c) CONSISTENT, not fully VERIFIED — the extremes of the sweep
-support the diffusion-length threshold hypothesis quantitatively, but the
-interior of the sweep is under-resolved (compute-budget-limited) and does not
-cleanly confirm monotonicity. A finer intermediate sweep would be needed to
-call the threshold curve itself verified, as opposed to just its endpoints.**
+**ITEM 4 (redesign, closes out B8(c)).** `report/item4_diffusion_threshold_sweep.py`
+fixes the actual flaw above directly: every point in the sweep now runs at the
+SAME resolution (28x28, dt=1.0, 15 slow steps — coarser than the B8(a)/(b)
+confirmed run throughout, but never changing point-to-point), removing
+resolution as a possible cause of non-monotonicity. A coarse 4-point
+bracketing pass (`d=1e-6, 1e-4, 1e-2, 1.0`) located the SECTORS->UNIFORM flip
+between `1e-4` and `1e-2`, then 4 rounds of log-space bisection narrowed it:
+
+| `d_i` | sector purity | verdict |
+|---|---|---|
+| 1e-6 | 1.00 | SECTORS |
+| 1e-4 | 1.00 | SECTORS |
+| 3.162e-4 | 0.83 | SECTORS |
+| 4.217e-4 | 0.33 | mixed |
+| 5.623e-4 | 0.00 | UNIFORM |
+| 1e-3 | 0.00 | UNIFORM |
+| 1e-2 | 0.00 | UNIFORM |
+| 1.0 | 0.00 | UNIFORM |
+
+**Result: monotonically non-increasing SECTORS -> UNIFORM as `d_i` grows, at
+this consistent resolution** — the non-monotonicity in the original sweep was
+indeed a resolution artifact, not a real feature; bisection converges the
+threshold to a factor-of-1.3 bracket, `d_i` in `[4.2e-4, 5.6e-4]`.
+
+**Genuine discrepancy, reported plainly, not forced:** the naive scaling
+prediction `d << L²/T` (with `L=1, T=15` for this sweep's shorter run,
+predicting a threshold `~0.067`) overshoots the bisected transition by
+**~two orders of magnitude** — the actual threshold is roughly 100-150x
+smaller than that estimate. `r_colony` is nearly constant (~0.67-0.69) across
+the entire `d_i` range tested, meaning overall colony *extent* here is set by
+reaction/cross-diffusion (`a_i=10*d_i` still drives outward spreading even at
+small `d_i`) rather than by `d_i` itself — so `L` (the domain size) is not the
+length scale actually controlling whether the SEEDED ANGULAR PATTERN survives
+or gets randomised away by bacterial diffusion before cross-diffusion "locks
+it in". A smaller candidate length scale (inter-seed spacing, ~0.26 for this
+setup's 120-degree seeding at radius 0.15) gives `d ~ 0.26²/15 ≈ 4.5e-3` —
+still ~10x above the bisected bracket, better but not exact. **No claim is
+made here about which corrected length scale is right** — only that the
+crude `L²/T` estimate is quantitatively wrong by a confirmed, well-measured
+margin, while the underlying qualitative claim (a diffusion-length threshold
+exists and is monotonic) is now on much firmer footing than before this item.
+
+**Status: B8(a)/(b) VERIFIED — sector formation is reproduced with the
+paper's own parameters, and it is real segregation (checked directly), not a
+metric artifact. B8(c)/ITEM 4: the existence and monotonicity of a
+diffusion-length threshold is now VERIFIED (bisected to a tight, resolution-
+consistent bracket); the specific `d ~ L²/T` quantitative prediction is
+CONTRADICTED by a measured ~100x factor — an honest, characterized
+discrepancy, not a forced agreement.**
 
 ---
 

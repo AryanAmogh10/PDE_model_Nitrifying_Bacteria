@@ -1,0 +1,32 @@
+==============================================================================
+ITEM 4: redesigned B8(c) diffusion-length threshold sweep
+(fixed resolution 28x28, dt_slow=1.0, 15 steps, for EVERY point)
+==============================================================================
+
+--- Coarse bracketing pass (log-spaced, same resolution throughout) ---
+  d=1e-06: r_colony=0.672 purity=1.00 -> SECTORS  (3.1s, newton)
+  d=1e-04: r_colony=0.689 purity=1.00 -> SECTORS  (3.0s, newton)
+  d=1e-02: r_colony=0.689 purity=0.00 -> UNIFORM  (2.9s, newton)
+  d=1e+00: r_colony=0.689 purity=0.00 -> UNIFORM  (3.0s, newton)
+
+--- Bisection refinement within [1e-04, 1e-02] (log-midpoint each iteration) ---
+  it=0 d=1.000e-03: r_colony=0.689 purity=0.00 -> UNIFORM  (3.0s)
+  it=1 d=3.162e-04: r_colony=0.689 purity=0.83 -> SECTORS  (3.0s)
+  it=2 d=5.623e-04: r_colony=0.689 purity=0.00 -> UNIFORM  (3.0s)
+  it=3 d=4.217e-04: r_colony=0.689 purity=0.33 -> mixed    (3.0s)
+
+Bisected threshold bracket: d_i in [4.217e-04, 5.623e-04] (factor of 1.3 wide)
+Predicted threshold scale d ~ L^2/T = 6.667e-02 (L=1, T=15)
+Predicted scale falls inside the bisected bracket: False
+
+--- Full point list, sorted by d_i ---
+  d=1.000e-06: r_colony=0.672 purity=1.00 verdict=SECTORS
+  d=1.000e-04: r_colony=0.689 purity=1.00 verdict=SECTORS
+  d=3.162e-04: r_colony=0.689 purity=0.83 verdict=SECTORS
+  d=4.217e-04: r_colony=0.689 purity=0.33 verdict=mixed
+  d=5.623e-04: r_colony=0.689 purity=0.00 verdict=UNIFORM
+  d=1.000e-03: r_colony=0.689 purity=0.00 verdict=UNIFORM
+  d=1.000e-02: r_colony=0.689 purity=0.00 verdict=UNIFORM
+  d=1.000e+00: r_colony=0.689 purity=0.00 verdict=UNIFORM
+
+Monotonically non-increasing SECTORS->UNIFORM as d_i grows, at this UNIFORM resolution: True
