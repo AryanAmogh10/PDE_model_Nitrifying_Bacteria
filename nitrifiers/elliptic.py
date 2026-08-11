@@ -196,6 +196,64 @@ def apply_bc(Lap: sp.csr_matrix, rhs: np.ndarray, grid: Grid, bc_type: str, valu
     return Lap.tocsr(), rhs
 
 
+def normalize_bc_specs(coeffs: dict, bc_type: str, bc_specs: dict | None) -> dict:
+    """Return a per-substrate {sub: (bc_type, value)} mapping.
+
+    This is the ITEM 1 fix: the source paper's own model (eq. 2.2) allows
+    EACH substrate to independently be Dirichlet or Neumann with its own
+    value -- our production path used to force one global bc_type onto all
+    four substrates simultaneously, which is why a coupled multi-substrate
+    Neumann solve (e.g. nonzero flux on NH4 AND O2 at once) was fragile: it
+    forced every substrate into whichever regime, well-posed or not, the
+    single bc_type implied.
+
+    If `bc_specs` is given explicitly, it is used directly (and validated).
+    Otherwise one is built from the single global `bc_type` + `coeffs
+    ["c_inf_hat"]`, reproducing the OLD single-bc_type behaviour exactly as a
+    special case of this same code path -- this is what makes the refactor a
+    strict extension: existing callers that only ever pass `bc_type` see no
+    behaviour change, because they are (via this function) running the new
+    per-substrate machinery with all four substrates set identically.
+    """
+    if bc_specs is not None:
+        missing = set(SUBSTRATES) - set(bc_specs.keys())
+        if missing:
+            raise ValueError(f"bc_specs is missing substrate(s): {sorted(missing)}")
+        for sub, spec in bc_specs.items():
+            if sub not in SUBSTRATES:
+                raise ValueError(f"bc_specs has unknown substrate {sub!r}")
+            bt, _ = spec
+            if bt not in ("dirichlet", "neumann"):
+                raise ValueError(f"bc_specs[{sub!r}]: bc_type must be 'dirichlet' "
+                                  f"or 'neumann', got {bt!r}")
+        return dict(bc_specs)
+    if bc_type not in ("dirichlet", "neumann"):
+        raise ValueError("bc_type must be 'dirichlet' or 'neumann'")
+    c_inf = coeffs["c_inf_hat"]
+    return {sub: (bc_type, c_inf[sub]) for sub in SUBSTRATES}
+
+
+def _default_initial_guess(bc_specs: dict, Npts: int) -> dict:
+    """Dirichlet substrates start at their prescribed value (unchanged from
+    before the refactor). Neumann substrates start at 1.0 (the natural
+    nondimensional reference scale used throughout this codebase, c_ref=1),
+    NOT 0.0.
+
+    0.0 was tried first and is a genuine trap, not merely a stylistic choice:
+    Monod(c;K) = c/(K+c) is EXACTLY 0 at c=0, so starting any substrate that
+    acts as a SECONDARY (co-limiting) substrate for multiple species -- O2,
+    here, needed by all three species' uptake terms -- at exactly 0 zeroes
+    every species' entire uptake, and hence the entire reaction Jacobian
+    coupling, at the very first iterate. This is the identical 'Ms=0 gating'
+    degeneracy diagnosed earlier in this project's Neumann investigation, this
+    time self-inflicted by the initial guess rather than by the boundary
+    condition itself -- caught while building the ITEM 1 coupled-Neumann
+    regression test (ill-posed the moment NH4 AND O2 are both Neumann and O2
+    starts at 0)."""
+    return {sub: np.full(Npts, val if bt == "dirichlet" else 1.0)
+            for sub, (bt, val) in bc_specs.items()}
+
+
 def reaction_and_jacobian(C: dict, U: dict, coeffs: dict):
     """C, U: dict of numpy arrays (same length), keyed by substrate/species name.
     Returns R (dict substrate -> array) and dR (dict (row_sub, col_sub) -> array,
@@ -304,10 +362,12 @@ def _assemble_global(Lap_bc: dict, R: dict, dR: dict, C: dict):
     return F, J
 
 
-def _residual(C, U, Lap_bc, coeffs, bc_type):
+def _residual(C, U, Lap_bc, coeffs, bc_specs):
+    """bc_specs: {sub: (bc_type, value)} -- see normalize_bc_specs. Each
+    substrate's row-N target now genuinely depends on ITS OWN bc_type/value,
+    not a single value shared by all four (the ITEM 1 refactor)."""
     Npts = len(next(iter(C.values())))
     R, dR = reaction_and_jacobian(C, U, coeffs)
-    c_inf = coeffs["c_inf_hat"]
     # only row N is a true BC row (fully replaced by apply_bc, no PDE meaning);
     # row 0 (r=0) is a real interior-type equation and keeps its reaction term
     # -- see the note in _assemble_global for why this matters.
@@ -315,18 +375,19 @@ def _residual(C, U, Lap_bc, coeffs, bc_type):
         R[sub][-1] = 0.0
     F = np.concatenate([Lap_bc[sub] @ C[sub] + R[sub] for sub in SUBSTRATES])
     for k, sub in enumerate(SUBSTRATES):
-        # Dirichlet row N target is the prescribed value c_inf[sub]; Neumann row
-        # N (built by apply_bc as (c[N]-c[N-1])/h = -value, value=c_inf[sub] --
-        # see solve_newton) must be driven toward that SAME -value, not 0. An
-        # earlier version hardcoded 0.0 here for the neumann branch, silently
-        # forcing every "neumann" solve to converge to zero-flux regardless of
-        # the actual (nonzero) value passed to apply_bc -- caught by comparing
-        # against the closed-form nonzero-flux Neumann solutions (Task 2/Fix 1).
-        F[(k + 1) * Npts - 1] = (Lap_bc[sub] @ C[sub])[-1] - (c_inf[sub] if bc_type == "dirichlet" else -c_inf[sub])
+        bt, val = bc_specs[sub]
+        # Dirichlet row N target is the prescribed value; Neumann row N (built
+        # by apply_bc as (c[N]-c[N-1])/h = -value) must be driven toward that
+        # SAME -value, not 0 -- an earlier version hardcoded 0.0 here for the
+        # neumann branch, silently forcing every "neumann" solve to converge
+        # to zero-flux regardless of the actual (nonzero) value passed to
+        # apply_bc (caught by comparing against closed-form Neumann solutions).
+        F[(k + 1) * Npts - 1] = (Lap_bc[sub] @ C[sub])[-1] - (val if bt == "dirichlet" else -val)
     return F, R, dR
 
 
 def solve_newton(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
+                  bc_specs: dict | None = None, C_init: dict | None = None,
                   tol: float = 1e-10, maxiter: int = 50, verbose: bool = False,
                   damped: bool = True, max_backtracks: int = 25,
                   c_max_factor: float = 5.0, relaxation_fallback: bool = True):
@@ -362,6 +423,28 @@ def solve_newton(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
         M/dt diagonal regularises exactly this kind of degenerate steady state.
         This is expected, reported behaviour for that regime, not a failure.
 
+    ITEM 1 refactor -- per-substrate boundary conditions: pass `bc_specs`, a
+    dict {sub: (bc_type, value)}, to give each of the 4 substrates its own
+    independent bc_type/value (matching the source paper's own model, eq.
+    2.2, where different substrates can have different physical boundary
+    treatments). `bc_type` (the old single-string parameter) is still
+    accepted and, when `bc_specs` is not given, is expanded into a per-
+    substrate spec using coeffs['c_inf_hat'] -- exactly reproducing the old
+    behaviour, so existing Dirichlet-only callers (Stage 6) are unaffected;
+    see normalize_bc_specs.
+
+    `C_init` (optional dict {sub: array or scalar}) overrides the default
+    initial guess. This matters for Neumann substrates with a small Khat
+    (e.g. eloi's AOB, Khat_NH4~0.003): the generic default (1.0, chosen to
+    avoid the Monod-gating trap at c=0 -- see _default_initial_guess) is deep
+    in the SATURATED part of the Monod curve there, so the reaction term at
+    the first iterate is already near its maximum rate, wildly mismatched
+    against a modest boundary flux, producing an enormous, poorly-conditioned
+    Newton direction. A K-scale-aware initial guess (e.g. a small multiple of
+    Khat) avoids this. Found while building the ITEM 1 coupled multi-substrate
+    Neumann test; not a bug in the refactor, a genuine sensitivity of Newton's
+    basin of attraction to the initial guess for small-Khat Neumann substrates.
+
     Returns (C, history, method), where method is "newton" for an ordinary
     converged (or maxiter-exhausted) Newton solve, or
     "newton_inner_relax_fallback" when (2) above engaged. Callers that need to
@@ -371,24 +454,28 @@ def solve_newton(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
     """
     Npts = grid.N + 1
     Lap0 = build_laplacian(grid)
-    c_inf = coeffs["c_inf_hat"]
-    # max(abs(.)), not max(.): c_inf doubles as the Neumann FLUX value (see
-    # apply_bc), which is signed (negative = influx) -- using the signed max
-    # here would silently collapse c_max to 0 whenever the largest-magnitude
-    # c_inf entry happens to be negative, clipping every trial concentration
-    # to exactly 0 regardless of step size. Caught by the Fix 1 nonzero-flux
-    # Neumann regression test, which uses a negative (influx) flux value.
-    c_max = c_max_factor * max(abs(v) for v in c_inf.values())
+    bc_specs = normalize_bc_specs(coeffs, bc_type, bc_specs)
+    # max(abs(.)), not max(.): a Neumann value is a signed FLUX (negative =
+    # influx) -- using the signed max here would silently collapse c_max to 0
+    # whenever the largest-magnitude value happens to be negative, clipping
+    # every trial concentration to exactly 0 regardless of step size. Caught
+    # by the Fix 1 nonzero-flux Neumann regression test.
+    c_max = c_max_factor * max(abs(val) for _, val in bc_specs.values())
 
     Lap_bc = {}
     for sub in SUBSTRATES:
+        bt, val = bc_specs[sub]
         rhs0 = np.zeros(Npts)
-        Lb, _ = apply_bc(Lap0, rhs0, grid, bc_type, c_inf[sub])
+        Lb, _ = apply_bc(Lap0, rhs0, grid, bt, val)
         Lap_bc[sub] = Lb
 
-    C = {sub: np.full(Npts, c_inf[sub]) for sub in SUBSTRATES}
+    if C_init is not None:
+        C = {sub: np.full(Npts, C_init[sub]) if np.isscalar(C_init[sub])
+             else np.asarray(C_init[sub], dtype=float).copy() for sub in SUBSTRATES}
+    else:
+        C = _default_initial_guess(bc_specs, Npts)
     history = []
-    F, R, dR = _residual(C, U, Lap_bc, coeffs, bc_type)
+    F, R, dR = _residual(C, U, Lap_bc, coeffs, bc_specs)
     res_norm = np.linalg.norm(F, ord=np.inf)
     history.append(res_norm)
 
@@ -411,7 +498,7 @@ def solve_newton(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
         # exhausted mid-convergence, never actually stalling) -- see its
         # docstring. With steady_tol matched here, the two layers should not
         # both fire for the same underlying degeneracy with different targets.
-        C_relax, hist_relax = solve_relaxation(coeffs, U, grid, bc_type=bc_type, steady_tol=tol)
+        C_relax, hist_relax = solve_relaxation(coeffs, U, grid, bc_specs=bc_specs, steady_tol=tol)
         return C_relax, history + list(hist_relax), "newton_inner_relax_fallback"
 
     for it in range(maxiter):
@@ -432,7 +519,7 @@ def solve_newton(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
         if not damped:
             for k, sub in enumerate(SUBSTRATES):
                 C[sub] = C[sub] + dX[k * Npts:(k + 1) * Npts]
-            F, R, dR = _residual(C, U, Lap_bc, coeffs, bc_type)
+            F, R, dR = _residual(C, U, Lap_bc, coeffs, bc_specs)
             res_norm = np.linalg.norm(F, ord=np.inf)
         else:
             accepted = False
@@ -441,7 +528,7 @@ def solve_newton(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
                            for k, sub in enumerate(SUBSTRATES)}
                 plausible = all(np.all(C[sub] + step * dX[k * Npts:(k + 1) * Npts] <= c_max)
                                  for k, sub in enumerate(SUBSTRATES))
-                F_trial, R_trial, dR_trial = _residual(C_trial, U, Lap_bc, coeffs, bc_type)
+                F_trial, R_trial, dR_trial = _residual(C_trial, U, Lap_bc, coeffs, bc_specs)
                 res_trial = np.linalg.norm(F_trial, ord=np.inf)
                 if np.isfinite(res_trial) and res_trial < res_norm and plausible:
                     C, F, R, dR, res_norm = C_trial, F_trial, R_trial, dR_trial, res_trial
@@ -470,30 +557,36 @@ def solve_newton(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
 
 
 def solve_picard(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
+                  bc_specs: dict | None = None,
                   tol: float = 1e-8, maxiter: int = 2000, relax: float = 1.0,
                   verbose: bool = False):
+    """See solve_newton's docstring for the bc_specs per-substrate interface;
+    bc_type is expanded into a per-substrate spec via normalize_bc_specs when
+    bc_specs is not given, reproducing the old single-bc_type behaviour."""
     Npts = grid.N + 1
     Lap0 = build_laplacian(grid)
-    c_inf = coeffs["c_inf_hat"]
+    bc_specs = normalize_bc_specs(coeffs, bc_type, bc_specs)
 
     Lap_bc = {}
     for sub in SUBSTRATES:
+        bt, val = bc_specs[sub]
         rhs0 = np.zeros(Npts)
-        Lb, _ = apply_bc(Lap0, rhs0, grid, bc_type, c_inf[sub])
+        Lb, _ = apply_bc(Lap0, rhs0, grid, bt, val)
         Lap_bc[sub] = Lb
 
-    C = {sub: np.full(Npts, c_inf[sub]) for sub in SUBSTRATES}
+    C = _default_initial_guess(bc_specs, Npts)
     history = []
     for it in range(maxiter):
         R, _ = reaction_and_jacobian(C, U, coeffs)
         C_new = {}
         max_change = 0.0
         for sub in SUBSTRATES:
+            bt, val = bc_specs[sub]
             rhs = -R[sub]
             rhs[0] = 0.0
             # see the matching note in _residual: neumann's row-N target must be
-            # -c_inf[sub] (apply_bc's own convention), not 0.0.
-            rhs[-1] = c_inf[sub] if bc_type == "dirichlet" else -c_inf[sub]
+            # -val (apply_bc's own convention), not 0.0.
+            rhs[-1] = val if bt == "dirichlet" else -val
             c_sol = spla.spsolve(Lap_bc[sub], rhs)
             C_new[sub] = (1 - relax) * C[sub] + relax * c_sol
             max_change = max(max_change, np.max(np.abs(C_new[sub] - C[sub])))

@@ -34,22 +34,28 @@ import scipy.sparse.linalg as spla
 
 from .elliptic import (
     Grid, build_laplacian, apply_bc, reaction_and_jacobian, _assemble_global,
-    SUBSTRATES,
+    SUBSTRATES, normalize_bc_specs, _default_initial_guess,
 )
 
 
 def solve_relaxation(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
+                      bc_specs: dict | None = None,
                       dt0: float = 1e-2, dt_growth: float = 1.3, dt_max: float = 1e8,
                       steady_tol: float = 1e-9, max_steps: int = 5000,
-                      verbose: bool = False):
+                      c_max_factor: float = 5.0, verbose: bool = False):
+    """See elliptic.solve_newton's docstring for the bc_specs per-substrate
+    interface (ITEM 1); bc_type is expanded into a per-substrate spec via
+    normalize_bc_specs when bc_specs is not given, reproducing the old
+    single-bc_type behaviour exactly."""
     Npts = grid.N + 1
     Lap0 = build_laplacian(grid)
-    c_inf = coeffs["c_inf_hat"]
+    bc_specs = normalize_bc_specs(coeffs, bc_type, bc_specs)
 
     Lap_bc = {}
     for sub in SUBSTRATES:
+        bt, val = bc_specs[sub]
         rhs0 = np.zeros(Npts)
-        Lb, _ = apply_bc(Lap0, rhs0, grid, bc_type, c_inf[sub])
+        Lb, _ = apply_bc(Lap0, rhs0, grid, bt, val)
         Lap_bc[sub] = Lb
 
     # mass diagonal: 1 everywhere except row N (the true, fully-replaced
@@ -64,7 +70,20 @@ def solve_relaxation(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichle
     mass_diag[-1] = 0.0
     M = sp.diags(np.concatenate([mass_diag] * len(SUBSTRATES)))
 
-    C = {sub: np.full(Npts, c_inf[sub]) for sub in SUBSTRATES}
+    # Same physical-plausibility upper bound as elliptic.solve_newton, and for
+    # the same reason: without it, this PTC iteration has no protection at all
+    # against diverging to a spurious, unphysical value (only np.maximum(.,0)
+    # floors it below). This was a real, live gap -- solve_newton's INNER
+    # fallback hands degenerate solves to this function precisely when its own
+    # guard can't find an admissible step, so if THIS function has no
+    # matching guard, the combined "protected Newton + unprotected fallback"
+    # is only as safe as its weakest link. Found via the ITEM 1 coupled
+    # multi-substrate Neumann test, where Newton failed at iteration 0 (before
+    # its own backtracking guard ever got a chance to reject anything) and the
+    # unguarded relaxation fallback diverged to ~3.7e11.
+    c_max = c_max_factor * max(abs(val) for _, val in bc_specs.values())
+
+    C = _default_initial_guess(bc_specs, Npts)
     dt = dt0
     history = []
 
@@ -74,11 +93,12 @@ def solve_relaxation(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichle
             R[sub][-1] = 0.0
         F = np.concatenate([Lap_bc[sub] @ C[sub] + R[sub] for sub in SUBSTRATES])
         for k, sub in enumerate(SUBSTRATES):
+            bt, val = bc_specs[sub]
             # see the matching note in elliptic.py::_residual: neumann's row-N
-            # target must be -c_inf[sub] (apply_bc's own convention), not 0.0 --
-            # the earlier hardcoded 0.0 silently forced zero-flux regardless of
-            # the actual requested flux value.
-            F[(k + 1) * Npts - 1] = (Lap_bc[sub] @ C[sub])[-1] - (c_inf[sub] if bc_type == "dirichlet" else -c_inf[sub])
+            # target must be -val (apply_bc's own convention), not 0.0 -- the
+            # earlier hardcoded 0.0 silently forced zero-flux regardless of the
+            # actual requested flux value.
+            F[(k + 1) * Npts - 1] = (Lap_bc[sub] @ C[sub])[-1] - (val if bt == "dirichlet" else -val)
         _, J = _assemble_global(Lap_bc, R, dR, C)
 
         res_norm = np.linalg.norm(F, ord=np.inf)
@@ -91,7 +111,7 @@ def solve_relaxation(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichle
         A = M / dt - J
         dC = spla.spsolve(A, F)
         for k, sub in enumerate(SUBSTRATES):
-            C[sub] = np.maximum(C[sub] + dC[k * Npts:(k + 1) * Npts], 0.0)
+            C[sub] = np.clip(C[sub] + dC[k * Npts:(k + 1) * Npts], 0.0, c_max)
 
         dt = min(dt * dt_growth, dt_max)
 
@@ -99,12 +119,12 @@ def solve_relaxation(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichle
 
 
 def compare_with_elliptic(coeffs: dict, U: dict, grid: Grid, bc_type: str = "dirichlet",
-                           **relax_kwargs):
+                           bc_specs: dict | None = None, **relax_kwargs):
     """Convenience helper for Stage 4: solve both ways and report max abs
     difference per substrate."""
     from .elliptic import solve_newton
-    C_ell, hist_ell, _ = solve_newton(coeffs, U, grid, bc_type=bc_type, maxiter=300)
-    C_rel, hist_rel = solve_relaxation(coeffs, U, grid, bc_type=bc_type, **relax_kwargs)
+    C_ell, hist_ell, _ = solve_newton(coeffs, U, grid, bc_type=bc_type, bc_specs=bc_specs, maxiter=300)
+    C_rel, hist_rel = solve_relaxation(coeffs, U, grid, bc_type=bc_type, bc_specs=bc_specs, **relax_kwargs)
     diffs = {sub: float(np.max(np.abs(C_ell[sub] - C_rel[sub]))) for sub in SUBSTRATES}
     return {
         "elliptic": C_ell, "elliptic_iters": len(hist_ell) - 1,

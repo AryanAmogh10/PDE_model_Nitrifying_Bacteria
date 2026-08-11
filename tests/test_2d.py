@@ -205,6 +205,45 @@ def test_parabolic_2d_reaches_analytic_equilibrium():
     assert all(b >= a - 1e-12 for a, b in zip(mh, mh[1:]))
 
 
+def test_2d_per_substrate_bc_specs_mixed_dirichlet_neumann():
+    """ITEM 1 extension: solve_newton_2d now accepts bc_specs, the same
+    per-substrate {sub: (bc_type, value)} interface as the 1D solver, for
+    consistency (see elliptic2d.normalize_bc_specs_2d). Genuinely mixed case:
+    NH4 Dirichlet, O2 zero-flux Neumann (sealed oxygen supply, fixed NH4 feed
+    -- physically meaningful, e.g. an anaerobic-leaning reactor), NO2/NO3
+    Dirichlet(0) matching the Stage 6 convention. NO2/NO3 zero-flux was also
+    tried and correctly reported "newton_stalled" (2D has no PTC fallback,
+    documented in elliptic2d.py) rather than a silent wrong answer -- a
+    genuine Fredholm-type well-posedness issue (net production under sealed
+    boundaries), the same mechanism as the 1D Task 1(b) finding, not a defect
+    in the bc_specs machinery; this test uses the well-posed configuration."""
+    coeffs = elliptic_coefficients("toy")
+    g = Grid2D(Nx=30, Ny=30)
+    U = {sp: 0.02 * np.exp(-((g.X - 0.5) ** 2 + (g.Y - 0.5) ** 2) / 0.15 ** 2).ravel()
+         for sp in SPECIES}
+    bc_specs = {"NH4": ("dirichlet", 1.0), "O2": ("neumann", 0.0),
+                "NO2": ("dirichlet", 0.0), "NO3": ("dirichlet", 0.0)}
+    C, hist, method = solve_newton_2d(coeffs, U, g, bc_specs=bc_specs, tol=1e-9, maxiter=60)
+    assert hist[-1] < 1e-9, (method, hist[-1])
+    assert method == "newton"
+
+
+def test_2d_neumann_nonzero_flux_raises_not_implemented():
+    """The 2D solver's scope limitation (stated in normalize_bc_specs_2d) must
+    fail loudly, not silently: there is no 2D equivalent of the 1D nonzero-
+    flux Neumann row yet."""
+    coeffs = elliptic_coefficients("toy")
+    g = Grid2D(Nx=10, Ny=10)
+    U = {sp: np.full(g.Npts, 0.02) for sp in SPECIES}
+    bc_specs = {"NH4": ("neumann", -0.3), "O2": ("dirichlet", 0.1876),
+                "NO2": ("dirichlet", 0.0), "NO3": ("dirichlet", 0.0)}
+    try:
+        solve_newton_2d(coeffs, U, g, bc_specs=bc_specs)
+        assert False, "expected NotImplementedError"
+    except NotImplementedError:
+        pass
+
+
 if __name__ == "__main__":
     test_control_volumes_are_exact()
     test_laplacian_2d_is_exactly_mass_conservative()
@@ -214,4 +253,6 @@ if __name__ == "__main__":
     test_advection_2d_is_exactly_mass_conservative()
     test_advection_rho_jacobian_2d_matches_finite_difference()
     test_parabolic_2d_reaches_analytic_equilibrium()
+    test_2d_per_substrate_bc_specs_mixed_dirichlet_neumann()
+    test_2d_neumann_nonzero_flux_raises_not_implemented()
     print("All 2D extension validation checks passed.")
