@@ -183,9 +183,12 @@ zonation reproduction.
   paper's own Case (A) is actually outside the epsilon-small regime that QSSA
   assumes (`eps = r*L^2/D = 1e4` there), a structural mismatch worth noting on
   its own. The diffusion-length threshold behind the sector/uniform transition
-  is confirmed at the extremes of a `d_i` sweep but not at every intermediate
-  point (compute-budget-limited resolution); see `report/audit_checklist.md`
-  B8 for the full sweep and its caveats.
+  is now confirmed monotonic at a resolution-consistent bisection sweep
+  (`report/item4_diffusion_threshold_sweep.py`), bracketed to `d_i` in
+  `[4.2e-4, 5.6e-4]` — but the naive `d << L^2/T` scaling estimate overshoots
+  that bracket by ~2 orders of magnitude, a genuine, characterized discrepancy
+  between the crude prediction and the measured threshold (see
+  `report/audit_checklist.md` B8/ITEM 4).
 - Parameter presets carry documented cleaning assumptions (`params.py`
   docstring, note 1 and note 7). `A_OVER_D_RATIO = 10` is **VERIFIED**: it
   exactly matches the `a_i/d_i` ratio used in arXiv:2512.13156's own Table 1
@@ -196,6 +199,58 @@ zonation reproduction.
   it changes whether `rebeca`'s Stage 6 run develops an anoxic core (present
   with the shipped rescale, absent without it), while leaving solver
   convergence, mass-growth direction, and dominant species unchanged.
+
+## Reproducing the validation results
+
+`report/` holds every quantitative claim made about this codebase as a
+runnable script plus its captured output, so a reviewer can regenerate any of
+them independently rather than trusting the prose:
+
+| Script | What it reproduces |
+|---|---|
+| `report/item2_wave_speed.py` | Paper Sec. 4.3 travelling-wave benchmark (measured `v_bar` vs. the paper's 0.8396, closed-form `v_min` vs. 0.0018) |
+| `report/item3_yield_sensitivity.py` | Sensitivity of Stage 6's qualitative conclusions to the `rebeca` preset's ÷100 yield rescale |
+| `report/item4_diffusion_threshold_sweep.py` | Bisection-refined diffusion-length threshold for 2D sector formation |
+| `report/item5_adversarial_reverification.py` | 3 load-bearing claims (`v_min` formula, `v_bar`, 2D Laplacian conservation), each re-derived from scratch with no import of `nitrifiers` |
+
+```bash
+pip install -r requirements.txt
+pytest tests/                                        # full regression suite, ~48 tests
+python report/item2_wave_speed.py                     # ~2 min
+python report/item3_yield_sensitivity.py               # ~seconds
+python report/item4_diffusion_threshold_sweep.py        # ~30 s
+python report/item5_adversarial_reverification.py       # ~1 min
+```
+
+`report/audit_checklist.md` is the running record of every claim's
+verification status (`VERIFIED` / `CONSISTENT` / `ASSUMED`), including the
+ones that turned out to be genuine, honestly-characterized discrepancies
+rather than confirmations — see B8/ITEM 4 for an example where a specific
+quantitative prediction was contradicted by ~2 orders of magnitude while the
+underlying qualitative claim held up. `report/progress_report.tex` and
+`report/teaching_summary.md` are longer-form narrative writeups of the same
+material.
+
+## Citing this work
+
+See [`CITATION.cff`](CITATION.cff). If you use this code, please also cite
+the source model paper below. For a specific reproducible snapshot, cite a
+tagged release (`git tag`) rather than an untagged commit — see "Archival"
+below. **No `LICENSE` file exists in this repository yet** — `CITATION.cff`
+intentionally omits a `license` field rather than guessing one; add a license
+file and update `CITATION.cff` before treating any release as reusable by
+others under specific terms.
+
+## Archival
+
+This repository is tagged at points corresponding to completed validation
+milestones (`git tag -l`) so that a specific, reproducible state of the code
+can be referenced independently of ongoing development on `main`. Archiving a
+tagged release on [Zenodo](https://zenodo.org/) (which mints a permanent DOI
+for a GitHub release) is **optional** and has not been done for this
+repository — if a DOI is needed (e.g. for a thesis/paper citation), enabling
+the Zenodo GitHub integration on a tagged release is the standard route; it
+is not required for the code or its validation record to be usable as-is.
 
 ## Reference
 
