@@ -471,17 +471,27 @@ agreement rather than a fully nonlinear closed form.
 \code{eloi}'s reaction stiffness --- a property of the fixed-point map
 (confirmed via Jacobian/eigenvalue analysis), not the discretization; Picard
 is never relied on as a primary solver.
-\item \code{solve\_newton(bc\_type='neumann')} remains unreliable for
-genuinely multi-substrate-coupled configurations --- diverges or hangs. Does
-not affect Stage 6 (always Dirichlet).
+\item \code{solve\_newton}/\code{solve\_picard}/\code{solve\_relaxation} now
+accept a per-substrate \code{bc\_specs} dict, so each substrate can
+independently be Dirichlet or (possibly nonzero-flux) Neumann; a genuinely
+coupled multi-substrate Neumann case is regression-tested and converges
+cleanly at moderate reaction-rate scales. That same configuration still fails
+to converge at the \code{eloi} preset's realistic stiff coefficients ---
+confirmed via direct SVD to be a genuinely near-singular Jacobian there
+(condition number $\sim4.3\times10^{16}$), not a solver defect.
 \item \code{c\_inf\_hat} is reused as both the Dirichlet value and the
 Neumann flux magnitude, so a zero-flux request cannot be expressed for a
 substrate with nonzero bulk concentration without a custom wrapper.
 \item \code{solve\_newton}'s return signature is a 3-tuple
 \code{(C, history, method)}; any new caller must unpack three values.
-\item Several preset cleaning decisions remain \assumed{} rather than
-verified against source (documented in \code{params.py}), notably the
-\code{rebeca} $\div100$ yield rescale and \code{A\_OVER\_D\_RATIO}.
+\item Preset cleaning decisions (documented in \code{params.py}):
+\code{A\_OVER\_D\_RATIO = 10} is \verified{} --- it exactly matches the
+$a_i/d_i$ ratio in arXiv:2512.13156's own Table 1, Case (A). The \code{rebeca}
+$\div100$ yield rescale remains \assumed{} and is not merely cosmetic: a
+sensitivity check (\code{report/item3\_yield\_sensitivity.py}) found that
+reverting it changes whether \code{rebeca}'s Stage 6 run develops an anoxic
+core, while solver convergence, mass-growth direction, and dominant species
+are unaffected.
 \end{itemize}
 
 \section{Conclusion}

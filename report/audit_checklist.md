@@ -397,8 +397,34 @@ agreement (not forced), full 108s solve at the paper's stated resolution.
   Rerun with the paper's own Table 1 Case (A) parameters reproduces sector
   formation. The earlier "reasoned, not verified" diagnosis was directionally
   correct but had never actually been tested; it now has been. See B8.
-- **D6.** Preset cleaning assumptions remain **ASSUMED**: the `rebeca` ÷100 yield
-  rescale, and `A_OVER_D_RATIO = 10`.
+- **D6 (ITEM 3, updated).** Preset cleaning assumptions, re-examined:
+  - `A_OVER_D_RATIO = 10` — **relabelled ASSUMED -> VERIFIED.** Not independently
+    re-derived from first principles (it is still a physically-reasoned
+    target ratio, not measured), but B8 already confirmed it is *exactly*
+    the value used in arXiv:2512.13156 Table 1 Case (A) (`a_i=1e-5, d_i=1e-6`),
+    pulled directly from the paper's own PDF. "Matches the paper's own stated
+    value" is the strongest evidence this kind of borrowed constant can have,
+    so it no longer belongs in the same "assumed" bucket as an un-cross-checked
+    guess.
+  - `rebeca`'s ÷100 yield rescale — **remains ASSUMED, and now known to be
+    qualitatively load-bearing, not just a scale choice.** ITEM 3
+    (`report/item3_yield_sensitivity.py`) ran Stage 6 identically on `rebeca`
+    (shipped, Y=Y_raw/100) and a `rebeca_unrescaled` variant (Y=Y_raw, the
+    /100 fix reverted) — same grid, same seed profile, same 20-step slow
+    loop. **Robust across the choice:** elliptic convergence (`newton` both
+    cases, residuals 9.1e-9 / 2.9e-11), bacterial mass growth direction (1.13x
+    / 1.27x), and dominant species (AOB, both cases). **NOT robust:** the
+    rim-to-core O2 zonation (anoxic core) that Stage 6 reports elsewhere as a
+    qualitative signature (see the `toy`-preset zonation test) — with the
+    shipped rescale the core is driven to ~9e-20 (fully anoxic); with the
+    100x-larger unrescaled Y (100x smaller Damkohler number, i.e. 100x weaker
+    substrate consumption per unit biomass) the core only falls to 0.30 vs. a
+    rim of 0.34, an 88%-of-rim value that does not read as "zonation" by any
+    reasonable threshold. **Reported plainly, not forced:** whether the
+    `rebeca` preset shows an anoxic core is therefore genuinely sensitive to
+    the ÷100 cleaning decision, and that decision remains an inference from
+    the raw values' suspicious 100x relationship to literature, not an
+    independently confirmed correction.
 - ~~**D7.** duplicated `SPECIES`/`PRIMARY`/`SECONDARY`~~ — **FIXED (two commits).**
   Originally found: `elliptic.py` and `parabolic.py` independently defined
   their own separate copies of `SPECIES`/`PRIMARY`/`SECONDARY` (identical

@@ -155,14 +155,16 @@ zonation reproduction.
   converge and is not a drop-in replacement for Newton under the `eloi`
   preset's reaction stiffness; this is a property of the fixed-point map,
   not the spatial discretization.
-- **`solve_newton(bc_type="neumann")` is unreliable for genuinely-coupled
-  multi-substrate configurations** (i.e. more than one substrate under
-  nonzero flux at once, which the single global `bc_type` parameter forces).
-  Directly tested: diverges (residual ~2e9 after the internal relaxation
-  fallback exhausts its step budget) or hangs, depending on the coupling
-  strength. Only a single-substrate-nonzero-flux configuration (via a mixed
-  Dirichlet/Neumann construction) is verified working. This does not affect
-  Stage 6, which always uses Dirichlet.
+- `solve_newton`/`solve_picard`/`solve_relaxation` now take a per-substrate
+  `bc_specs = {sub: (bc_type, value)}` dict, so each substrate can be
+  independently Dirichlet or (possibly nonzero-flux) Neumann; the old global
+  `bc_type` parameter is still accepted and expanded into the equivalent
+  per-substrate spec. A genuinely-coupled multi-substrate Neumann case is
+  regression-tested and converges cleanly at moderate reaction-rate scales.
+  **Remaining, honestly-characterized limitation:** that same coupled
+  configuration does not converge at the `eloi` preset's realistic stiff
+  coefficients — confirmed via direct SVD to be a genuinely near-singular
+  Jacobian there (condition number ~4.3e16), not a solver defect.
 - `solve_newton`'s return signature is `(C, history, method)` — a 3-tuple, not
   2. All in-repo call sites are updated; any new caller must unpack three
   values.
@@ -170,16 +172,30 @@ zonation reproduction.
   a degenerate solve returns `method="newton_stalled"` and the achieved
   residual rather than being silently rescued. Callers should inspect
   `elliptic_residual` rather than assuming every step converged.
-- The 2D solver does **not** reproduce the sector formation of the source
-  paper's Fig. 3/4. Diagnosed as a setup/parameter-regime consequence, not a
-  solver defect: the domain and boundary conditions are angularly symmetric so
-  angular modes have no forcing and only decay, and `Dhat ~ 4.2` gives a
-  diffusion length exceeding the domain. Sector formation there arises from a
-  sharp front expanding into empty space, a condition this setup never creates.
-  This has not been checked against the paper's own Fig. 3/4 parameters.
-- Parameter presets carry several documented, but unverified-against-source,
-  cleaning assumptions (e.g. the `rebeca` yield rescale, `A_OVER_D_RATIO`);
-  see the docstring in `params.py` for the full list.
+- The 2D solver **does** reproduce sector formation when run with the source
+  paper's own Table 1 Case (A) parameters (`d_i=1e-6, a_i=1e-5`, three inocula
+  seeded 120 degrees apart): colony expands, interior depletes and decays, and
+  each species dominates a distinct angular wedge aligned with its seed angle
+  (checked directly per-sector, not via a Fourier-mode proxy that can miss the
+  seeded pattern). Deviation flagged, not hidden: the paper uses a
+  time-dependent substrate with near-zero Neumann influx; this reproduction
+  uses the project's validated QSSA + Dirichlet machinery instead — the
+  paper's own Case (A) is actually outside the epsilon-small regime that QSSA
+  assumes (`eps = r*L^2/D = 1e4` there), a structural mismatch worth noting on
+  its own. The diffusion-length threshold behind the sector/uniform transition
+  is confirmed at the extremes of a `d_i` sweep but not at every intermediate
+  point (compute-budget-limited resolution); see `report/audit_checklist.md`
+  B8 for the full sweep and its caveats.
+- Parameter presets carry documented cleaning assumptions (`params.py`
+  docstring, note 1 and note 7). `A_OVER_D_RATIO = 10` is **VERIFIED**: it
+  exactly matches the `a_i/d_i` ratio used in arXiv:2512.13156's own Table 1
+  Case (A) toy simulations. The `rebeca` preset's ÷100 yield rescale remains
+  **ASSUMED** (a plausible units-slip correction, not independently
+  confirmed against the original source) and is **not merely cosmetic**: a
+  sensitivity check (`report/item3_yield_sensitivity.py`) found that reverting
+  it changes whether `rebeca`'s Stage 6 run develops an anoxic core (present
+  with the shipped rescale, absent without it), while leaving solver
+  convergence, mass-growth direction, and dominant species unchanged.
 
 ## Reference
 

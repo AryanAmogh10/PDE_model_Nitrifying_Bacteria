@@ -1,0 +1,32 @@
+==============================================================================
+ITEM 3: rebeca yield /100 rescale -- sensitivity of Stage 6 conclusions
+==============================================================================
+
+Damkohler number Lambda[AOB][NH4] (drives NH4 consumption strength):
+  rebeca (rescaled, Y=Y_raw/100):   1.2978e+03
+  rebeca_unrescaled (Y=Y_raw):       1.2978e+01
+  ratio: 100.0x (expected exactly 100x, since Lambda ~ 1/Y)
+
+--- rebeca (SHIPPED, /100 rescale) ---
+  elliptic methods used: ['newton']
+  max elliptic residual over loop: 9.063e-09
+  total mass: start=4.197594e-03 end=4.745509e-03 (growth factor 1.1305)
+  O2: core=9.0479e-20, rim=3.3845e-01, rim-to-core zonation present: True
+  dominant species by total mass: AOB
+
+--- rebeca_unrescaled (raw e-mail values) ---
+  elliptic methods used: ['newton']
+  max elliptic residual over loop: 2.860e-11
+  total mass: start=4.216695e-03 end=5.337848e-03 (growth factor 1.2659)
+  O2: core=3.0467e-01, rim=3.3845e-01, rim-to-core zonation present: False
+  dominant species by total mass: AOB
+
+==============================================================================
+ROBUSTNESS VERDICT
+==============================================================================
+  Both presets' elliptic solves converge to tolerance: True
+  Both presets show bacterial mass growth over the loop: True (rebeca: 1.131x, unrescaled: 1.266x)
+  Both presets show rim-to-core O2 zonation: False
+  Dominant species: rebeca=AOB, unrescaled=AOB
+
+  QUALITATIVE CONCLUSIONS ROBUST TO THE /100 CHOICE: False

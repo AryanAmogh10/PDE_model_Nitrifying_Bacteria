@@ -81,6 +81,18 @@ Cleaning decisions (flagged explicitly so they can be revisited):
        Storing a_i in the same units as d_i, as an earlier version of this file did, was a
        units bug -- fixed by keeping only the target ratio A_OVER_D_RATIO here and deriving the
        dimensional a_i from it once a bacterial reference density u_ref is chosen (Stage 2).
+       A_OVER_D_RATIO = 10 status: VERIFIED (not just ASSUMED) -- Table 1, Case (A) of
+       arXiv:2512.13156, pulled directly from the paper's own PDF, gives d_i=1e-6, a_i=1e-5,
+       i.e. a_i/d_i = 10 exactly (see report/audit_checklist.md, B8). This is still a borrowed
+       constant (this project's a_i/d_i was not independently re-derived from first principles),
+       but it now matches the paper's own stated value rather than being an unchecked guess.
+
+    Labeling status of cleaning decisions above, per report/audit_checklist.md D6:
+    note 1 (rebeca /100 yield rescale) -- ASSUMED, and shown (ITEM 3,
+    report/item3_yield_sensitivity.py) to be qualitatively load-bearing: it determines whether
+    Stage 6's rebeca run develops an anoxic core, while solver convergence, mass-growth
+    direction, and dominant species are unaffected by the choice.
+    note 7 (A_OVER_D_RATIO) -- VERIFIED, see above.
 """
 
 from __future__ import annotations
