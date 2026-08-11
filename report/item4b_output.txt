@@ -1,0 +1,67 @@
+==============================================================================
+PART A: candidate Damkohler numbers Da = r_max*L^2/d at the
+28x28-grid bisected threshold (already known: d in [4.2e-4, 5.6e-4])
+==============================================================================
+
+Geometric-mean bisected threshold (28x28 grid): d_mid = 4.8695e-04
+sqrt(d_mid/r_max) [diffusion length in one reaction time]: 0.0221
+  L = domain L=1                 = 1.0000  ->  Da = r*L^2/d = 2053.592
+  L = inter-seed spacing         = 0.2598  ->  Da = r*L^2/d =  138.617
+  L = seed radius                = 0.1000  ->  Da = r*L^2/d =   20.536
+  L = grid spacing h (28x28)     = 0.0357  ->  Da = r*L^2/d =    2.619
+
+Grid spacing gives Da closest to O(1) -- this is a warning sign for a resolution artifact, not real physics tied to seed geometry. Testing directly in Part B.
+
+==============================================================================
+PART B: grid-resolution check -- does the threshold shift with h?
+==============================================================================
+
+-- Resolution 28x28 (reproducing item4's original result) --
+    d=1e-06: r_colony=0.672 purity=1.00 -> SECTORS  (3.1s)
+    d=1e-04: r_colony=0.689 purity=1.00 -> SECTORS  (3.1s)
+    d=1e-02: r_colony=0.689 purity=0.00 -> UNIFORM  (3.0s)
+    d=1e+00: r_colony=0.689 purity=0.00 -> UNIFORM  (3.2s)
+    it=0 d=1.000e-03: r_colony=0.689 purity=0.00 -> UNIFORM  (3.1s)
+    it=1 d=3.162e-04: r_colony=0.689 purity=0.83 -> SECTORS  (3.1s)
+    it=2 d=5.623e-04: r_colony=0.689 purity=0.00 -> UNIFORM  (3.0s)
+    it=3 d=4.217e-04: r_colony=0.689 purity=0.33 -> mixed    (3.1s)
+
+-- Resolution 40x40 (finer: h shrinks from 1/28=0.0357 to 1/40=0.025) --
+    d=1e-06: r_colony=0.689 purity=1.00 -> SECTORS  (6.4s)
+    d=1e-04: r_colony=0.707 purity=1.00 -> SECTORS  (6.2s)
+    d=1e-02: r_colony=0.707 purity=0.00 -> UNIFORM  (6.2s)
+    d=1e+00: r_colony=0.707 purity=0.00 -> UNIFORM  (6.2s)
+    it=0 d=1.000e-03: r_colony=0.707 purity=0.00 -> UNIFORM  (6.2s)
+    it=1 d=3.162e-04: r_colony=0.707 purity=0.00 -> UNIFORM  (6.4s)
+    it=2 d=1.778e-04: r_colony=0.707 purity=0.83 -> SECTORS  (6.3s)
+    it=3 d=2.371e-04: r_colony=0.707 purity=0.50 -> mixed    (6.3s)
+
+Threshold (28x28): d_mid = 4.8697e-04
+Threshold (40x40): d_mid = 2.7384e-04
+Observed threshold ratio d_28/d_40 = 1.778
+Predicted ratio if purely a grid (h^2) artifact: (h_28/h_40)^2 = 2.041
+Predicted ratio if threshold is resolution-INDEPENDENT (real physics): 1.0
+
+Observed ratio is closer (in log-space) to: GRID ARTIFACT (numerical)
+
+==============================================================================
+PART C: does advection strength (A_OVER_D_RATIO) shift the threshold?
+==============================================================================
+
+Fixed d_i = 4.870e-04 (28x28-grid bisected midpoint, right at the transition for A_OVER_D_RATIO=10), sweeping A_OVER_D_RATIO:
+  A_OVER_D_RATIO=   3.0: r_colony=0.689 purity=0.17 -> mixed    (3.1s)
+  A_OVER_D_RATIO=  10.0: r_colony=0.689 purity=0.00 -> UNIFORM  (3.0s)
+  A_OVER_D_RATIO=  30.0: r_colony=0.689 purity=0.00 -> UNIFORM  (3.0s)
+  A_OVER_D_RATIO= 100.0: r_colony=0.689 purity=0.00 -> UNIFORM  (3.0s)
+-- Resolution 56x56 (exact 2x of 28: h halves exactly) --
+    d=1e-06: r_colony=0.672 purity=1.00 -> SECTORS  (14.0s)
+    d=1e-04: r_colony=0.707 purity=1.00 -> SECTORS  (13.3s)
+    d=1e-02: r_colony=0.707 purity=0.00 -> UNIFORM  (13.7s)
+    d=1e+00: r_colony=0.707 purity=0.00 -> UNIFORM  (14.4s)
+    it=0 d=1.000e-03: r_colony=0.707 purity=0.00 -> UNIFORM  (13.7s)
+    it=1 d=3.162e-04: r_colony=0.707 purity=0.00 -> UNIFORM  (13.7s)
+    it=2 d=1.778e-04: r_colony=0.707 purity=0.50 -> mixed    (13.8s)
+    it=3 d=2.371e-04: r_colony=0.707 purity=0.33 -> mixed    (13.6s)
+Threshold (56x56): d_mid = 2.7384e-04
+Observed ratio d_28/d_56 = 1.778
+Predicted ratio if h^2 artifact: (56/28)^2 = 4.000

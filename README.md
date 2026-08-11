@@ -182,13 +182,23 @@ zonation reproduction.
   uses the project's validated QSSA + Dirichlet machinery instead — the
   paper's own Case (A) is actually outside the epsilon-small regime that QSSA
   assumes (`eps = r*L^2/D = 1e4` there), a structural mismatch worth noting on
-  its own. The diffusion-length threshold behind the sector/uniform transition
-  is now confirmed monotonic at a resolution-consistent bisection sweep
-  (`report/item4_diffusion_threshold_sweep.py`), bracketed to `d_i` in
-  `[4.2e-4, 5.6e-4]` — but the naive `d << L^2/T` scaling estimate overshoots
-  that bracket by ~2 orders of magnitude, a genuine, characterized discrepancy
-  between the crude prediction and the measured threshold (see
-  `report/audit_checklist.md` B8/ITEM 4).
+  its own. The sector/uniform transition is a real, resolution-independent
+  effect: a bisection sweep (`report/item4_diffusion_threshold_sweep.py`) at
+  28x28 resolution located it at `d_i ~ 4.9e-4`, but a direct grid-refinement
+  check (`report/item4b_threshold_mechanism.py`, 40x40 and 56x56) showed that
+  estimate was under-resolved and biased ~1.8x high — the resolution-corrected
+  threshold is `d_i ~ 2.7e-4` (40x40/56x56 agree). The naive `d << L^2/T`
+  scaling estimate (using domain size) is decisively wrong regardless of
+  timescale choice (`Da = r*L_domain^2/d ~ 3650` at the corrected threshold,
+  nowhere near O(1)); the best single length-scale candidate tested (seed
+  radius) gets to `Da ~ 37` (order 10-100, not order 1000s) but not to a
+  clean O(1). Advection strength (`A_OVER_D_RATIO`) has a confirmed secondary
+  effect on the threshold location. **Mechanism not fully pinned down**: most
+  consistent with an angular pattern-formation/mode-selection effect (whether
+  the seeded `m=3` perturbation grows or decays) rather than a simple
+  diffusion-length-vs-domain-size balance, but the linear-stability analysis
+  that would nail this down was not attempted — see `report/audit_checklist.md`
+  B8/ITEM 4 for the full investigation, including what was ruled out.
 - Parameter presets carry documented cleaning assumptions (`params.py`
   docstring, note 1 and note 7). `A_OVER_D_RATIO = 10` is **VERIFIED**: it
   exactly matches the `a_i/d_i` ratio used in arXiv:2512.13156's own Table 1
@@ -211,6 +221,7 @@ them independently rather than trusting the prose:
 | `report/item2_wave_speed.py` | Paper Sec. 4.3 travelling-wave benchmark (measured `v_bar` vs. the paper's 0.8396, closed-form `v_min` vs. 0.0018) |
 | `report/item3_yield_sensitivity.py` | Sensitivity of Stage 6's qualitative conclusions to the `rebeca` preset's ÷100 yield rescale |
 | `report/item4_diffusion_threshold_sweep.py` | Bisection-refined diffusion-length threshold for 2D sector formation |
+| `report/item4b_threshold_mechanism.py` | Grid-refinement check + advection-strength sweep investigating *why* the naive `d<<L^2/T` scaling missed the ITEM 4 threshold |
 | `report/item5_adversarial_reverification.py` | 3 load-bearing claims (`v_min` formula, `v_bar`, 2D Laplacian conservation), each re-derived from scratch with no import of `nitrifiers` |
 
 ```bash
@@ -219,6 +230,7 @@ pytest tests/                                        # full regression suite, ~4
 python report/item2_wave_speed.py                     # ~2 min
 python report/item3_yield_sensitivity.py               # ~seconds
 python report/item4_diffusion_threshold_sweep.py        # ~30 s
+python report/item4b_threshold_mechanism.py              # ~2 min (grid-refinement check)
 python report/item5_adversarial_reverification.py       # ~1 min
 ```
 

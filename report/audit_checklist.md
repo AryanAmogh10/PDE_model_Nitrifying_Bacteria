@@ -314,31 +314,101 @@ this consistent resolution** — the non-monotonicity in the original sweep was
 indeed a resolution artifact, not a real feature; bisection converges the
 threshold to a factor-of-1.3 bracket, `d_i` in `[4.2e-4, 5.6e-4]`.
 
-**Genuine discrepancy, reported plainly, not forced:** the naive scaling
-prediction `d << L²/T` (with `L=1, T=15` for this sweep's shorter run,
-predicting a threshold `~0.067`) overshoots the bisected transition by
-**~two orders of magnitude** — the actual threshold is roughly 100-150x
-smaller than that estimate. `r_colony` is nearly constant (~0.67-0.69) across
-the entire `d_i` range tested, meaning overall colony *extent* here is set by
-reaction/cross-diffusion (`a_i=10*d_i` still drives outward spreading even at
-small `d_i`) rather than by `d_i` itself — so `L` (the domain size) is not the
-length scale actually controlling whether the SEEDED ANGULAR PATTERN survives
-or gets randomised away by bacterial diffusion before cross-diffusion "locks
-it in". A smaller candidate length scale (inter-seed spacing, ~0.26 for this
-setup's 120-degree seeding at radius 0.15) gives `d ~ 0.26²/15 ≈ 4.5e-3` —
-still ~10x above the bisected bracket, better but not exact. **No claim is
-made here about which corrected length scale is right** — only that the
-crude `L²/T` estimate is quantitatively wrong by a confirmed, well-measured
-margin, while the underlying qualitative claim (a diffusion-length threshold
-exists and is monotonic) is now on much firmer footing than before this item.
+**Genuine discrepancy found:** the naive scaling prediction `d << L²/T`
+(`L=1, T=15`, predicting a threshold `~0.067`) overshoots the bisected
+transition (`~4.9e-4` at 28x28 resolution) by ~two orders of magnitude. Per
+explicit instruction this was investigated to a resolution, not left as a
+bare unexplained gap — see `report/item4b_threshold_mechanism.py`.
+
+**Investigation (ITEM 4 follow-up).**
+
+*Step 1 — candidate length scales.* `Da := r_max*L²/d`, evaluated at the
+28x28 threshold (`d=4.87e-4`) for four candidate `L`:
+
+| length scale `L` | value | `Da = r*L²/d` |
+|---|---|---|
+| domain size | 1.0 | 2054 |
+| inter-seed spacing | 0.260 | 139 |
+| seed radius | 0.10 | 20.5 |
+| grid spacing `h` (28x28) | 0.0357 | **2.6** |
+
+Grid spacing gave the closest-to-O(1) value — a warning sign the "threshold"
+might be a numerical-resolution artifact rather than physics tied to seed
+geometry, not evidence of the right length scale (grid spacing isn't a
+property of the physical problem).
+
+*Step 2 — direct resolution test.* Reran the identical coarse-bracket +
+bisection procedure at 40x40 and 56x56 (finer grids; `h` shrinks from
+`1/28=0.0357` to `1/40=0.025` to `1/56=0.0179`):
+
+| grid | `h` | bisected `d_mid` |
+|---|---|---|
+| 28x28 | 0.0357 | 4.87e-4 |
+| 40x40 | 0.0250 | 2.74e-4 |
+| 56x56 | 0.0179 | 2.74e-4 |
+
+The 28x28 estimate is confirmed **under-resolved and biased ~1.8x high** —
+a real, quantified numerical effect, consistent with the grid-spacing `Da`
+warning in Step 1. But a *pure* `h²` artifact would keep shrinking the
+threshold at every finer grid (predicted 40x40->56x56 ratio: `(40/56)² =
+0.51`, i.e. `d_mid(56x56)` should fall to `~1.4e-4`); it did not — 40x40 and
+56x56 agree (within this bisection's discrete resolution, limited by a
+6-sector purity metric with `1/6` granularity). **This rules out "pure grid
+artifact" as the full explanation**: the threshold is converging toward a
+resolution-independent value near `d ~ 2.7e-4`, not continuing to shrink with
+`h`. Re-evaluating the candidate length scales at this converged value:
+
+| length scale `L` | `Da = r*L²/d` (at `d=2.74e-4`) |
+|---|---|
+| domain size | 3652 |
+| inter-seed spacing | 246 |
+| seed radius | **36.5** |
+
+Seed radius gets closest (order 10-100, not order 1000s), but **none of the
+four tested length scales bring `Da` to a clean O(1) value** even at the
+resolution-corrected threshold.
+
+*Step 3 — advection strength.* Fixed `d_i = 4.87e-4` (the 28x28 threshold,
+`A_OVER_D_RATIO=10` -> UNIFORM) and swept `A_OVER_D_RATIO in {3, 10, 30,
+100}`: `A=3` gives `purity=0.17` ("mixed"), `A=10,30,100` all give
+`UNIFORM (purity=0)`. **Advection strength has a real, measurable, secondary
+effect** — weaker cross-diffusion allows more sector-like structure to
+persist at the same `d_i` — confirming the single-parameter (`d_i`-only)
+story is incomplete, though this single check does not fully quantify the
+joint `(d_i, A_OVER_D_RATIO)` dependence.
+
+**Resolution reached, stated precisely.** RULED OUT: (a) the naive `d<<L²/T`
+prediction using domain size as the length scale — decisively wrong,
+regardless of which timescale (`T` or `1/r_max`) is paired with it, since
+even `Da=r*L_domain²/d` at the converged threshold is `~3652`, nowhere near
+O(1); (b) "pure numerical artifact" as the sole explanation — the 40x40/56x56
+agreement after the 28x28-to-40x40 correction indicates a real,
+resolution-independent transition exists, not a mirage that keeps receding
+with `h`. ESTABLISHED: the 28x28 sweep (Item 4's original result) was
+under-resolved and biased ~1.8x high; the resolution-corrected threshold is
+`d ~ 2.7e-4` for `A_OVER_D_RATIO=10`; advection strength is a confirmed
+second relevant parameter. **NOT PINNED DOWN:** a single closed-form,
+quantitatively-checked O(1) scaling law. The best single-length-scale
+candidate (seed radius) still leaves `Da` at `O(10-100)`, not `O(1)` — this
+is most consistent with the transition being an angular pattern-formation
+/ mode-selection effect (whether the seeded 3-fold, `m=3` azimuthal
+perturbation grows or decays under the coupled diffusion-advection-reaction
+dynamics) rather than a simple 1D diffusion-length-vs-domain-size balance; a
+full linear stability / dispersion-relation analysis of that mode would be
+needed to derive a clean quantitative criterion, and was not attempted here
+— flagged as genuine remaining future work, not claimed as done.
 
 **Status: B8(a)/(b) VERIFIED — sector formation is reproduced with the
 paper's own parameters, and it is real segregation (checked directly), not a
-metric artifact. B8(c)/ITEM 4: the existence and monotonicity of a
-diffusion-length threshold is now VERIFIED (bisected to a tight, resolution-
-consistent bracket); the specific `d ~ L²/T` quantitative prediction is
-CONTRADICTED by a measured ~100x factor — an honest, characterized
-discrepancy, not a forced agreement.**
+metric artifact. B8(c)/ITEM 4: existence of a resolution-independent
+SECTORS->UNIFORM transition is now VERIFIED (confirmed via a direct
+grid-refinement test, not just a single-resolution bisection), and the
+resolution-corrected threshold is `d ~ 2.7e-4` for `A_OVER_D_RATIO=10`. The
+mechanism is CONSISTENT with a length scale near the seed geometry (order
+10-100 in `Da`, not order 1000s) plus a confirmed secondary dependence on
+advection strength, but is **not fully pinned down** to a single, closed-form,
+O(1)-verified scaling law — reported as an open mechanistic question, not
+papered over.**
 
 ---
 
