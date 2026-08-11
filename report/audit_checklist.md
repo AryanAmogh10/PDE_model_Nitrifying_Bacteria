@@ -404,6 +404,49 @@ agreement (not forced), full 108s solve at the paper's stated resolution.
 
 ---
 
+### B10. ITEM 5: adversarial re-verification of 3 load-bearing claims, from scratch
+`report/item5_adversarial_reverification.py` re-derives 3 claims independently
+of any existing test or project code (no import of `nitrifiers`), to check
+whether they survive a from-scratch attack rather than just re-running the
+project's own implementation against itself.
+
+- **CLAIM 1 — v_min formula.** `v_min = 2*sqrt(d*r*c0/(K+c0))` (used in ITEM 2)
+  re-derived symbolically (`sympy`) by linearising System (3.12) around the
+  unstable state `(rho=0, c=c0)`. Confirmed directly from the actual
+  reaction term `f = rho*(r*c/(K+c) - b*rho)` (re-read from
+  `item2_wave_speed.py`, not assumed) that the self-limitation term is
+  **quadratic** in `rho` (a crowding term), not a constant per-capita
+  mortality — so it drops out at linear order along with the cross-diffusion
+  term, leaving the characteristic equation `d*lambda^2 + v*lambda +
+  r*c0/(K+c0) = 0`. The real-root/oscillation boundary of that equation's
+  discriminant matches the candidate formula exactly (symbolic difference
+  simplifies to 0). Numeric value at Case (A): `0.001826` vs. paper's `0.0018`
+  (1.43% relative difference). **CONFIRMED.**
+- **CLAIM 2 — v_bar travelling-wave speed.** Re-solved with a SECOND,
+  independently-coded solver: raw physical domain `[0,200]` (no `x_hat=x/L`
+  rescale), centred (not upwind) flux-form finite differences, ghost-node
+  mirroring for zero-flux BCs (not `elliptic.py`'s row-replacement), `Nx=800`
+  (vs. ITEM 2's `Nx=2000` — a spot check, not a resolution study). Result:
+  `v_bar = 0.8375`, agreeing with ITEM 2's own `0.8325` to **0.60%**, and
+  actually landing CLOSER to the paper's `0.8396` (**0.25%** relative
+  difference) than ITEM 2's original run. Two independently-coded numerical
+  schemes converging to the same answer is meaningfully stronger evidence
+  than either one alone. **CONFIRMED.**
+- **CLAIM 3 — 2D FV Laplacian exact conservation** (`report/audit_checklist.md`
+  D8: `sum_ij V_ij*(Lap@c)_ij = 0` for any `c`, any resolution). Re-derived
+  analytically from scratch via the telescoping-flux argument (every interior
+  face's contribution appears exactly twice, with opposite sign, from its two
+  adjacent control volumes, and cancels identically; zero-flux boundary nodes
+  contribute nothing by construction), then re-checked numerically with a
+  hand-rolled 5-point FV stencil (not `nitrifiers/grid2d.py`) across 3 grid
+  sizes (`10x10, 23x17, 40x40`) x 3 random fields each: all 9 sums are at
+  machine-precision zero (`1e-16` to `1e-13` range). **CONFIRMED.**
+
+**All 3 claims survive independent, from-scratch re-derivation.** No
+discrepancy found this round — reported as such rather than manufacturing one.
+
+---
+
 ## D. Open issues — NOT fixed, documented in README
 
 - **D1.** Picard needs the `rhs[0]=0` centre-decoupling workaround to converge

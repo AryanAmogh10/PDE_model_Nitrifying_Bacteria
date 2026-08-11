@@ -1,0 +1,71 @@
+==============================================================================
+CLAIM 1: v_min = 2*sqrt(d*r*c0/(K+c0)) -- symbolic re-derivation
+==============================================================================
+
+Linearised ODE (moving frame, rho=0/c=c0 base state):
+  d*rho'' + v*rho' + (r*c0/(K+c0))*rho = 0
+Characteristic equation: Eq(c0*r/(K + c0) + d*lambda**2 + lambda*v, 0)
+
+Discriminant (in lambda): (K*v**2 - 4*c0*d*r + c0*v**2)/(K + c0)
+Roots of discriminant=0 (real-root/oscillation boundary): [2*sqrt(c0)*sqrt(d)*sqrt(r)/sqrt(K + c0)]
+
+Candidate closed form: v_min = 2*sqrt(d*r*c0/(K+c0))
+Matches the boundary root of the discriminant condition: True
+
+Numeric value at paper's Case (A) (d=1e-6, r=1, K=1, c0=5): v_min = 0.001826
+Paper reports: 0.0018
+Relative difference: 1.43%
+
+==============================================================================
+CLAIM 2: v_bar ~ 0.84 -- independent second solver (physical domain,
+centred FD, ghost-node BCs, no rescale, no project code)
+==============================================================================
+
+solve_ivp success=True, nfev=16754
+argmax(rho) at t=160: x=132.5000
+argmax(rho) at t=200: x=166.0000
+
+INDEPENDENT v_bar = 0.837500
+ITEM 2's original (upwind FV, rescaled domain) result: 0.8325
+Paper reports: 0.8396
+Independent-vs-ITEM-2 relative difference: 0.60%
+Independent-vs-paper relative difference: 0.25%
+
+==============================================================================
+CLAIM 3: sum_ij V_ij*(Lap@c)_ij = 0 for ANY c -- analytic + fresh
+independent numerical re-check (own stencil, not grid2d.py)
+==============================================================================
+
+Analytic re-derivation (telescoping flux argument), from scratch:
+  A conservative finite-volume Laplacian on any grid can be written per node k
+  as (Lap@c)_k = (1/V_k) * sum_{faces f of k} (c_neighbor - c_k) * A_f / dist_f,
+  i.e. V_k*(Lap@c)_k = sum_f Flux_f(k), where Flux_f(k) for the SHARED interior
+  face between nodes k and m is antisymmetric: Flux_f(k) = -Flux_f(m) (the flux
+  leaving k across a face is exactly the flux entering m across that same
+  face, by construction of a two-point flux with a common face area/distance).
+  Summing V_k*(Lap@c)_k over ALL k: every interior face's contribution appears
+  exactly twice, once as +Flux and once as -Flux (from its two adjacent
+  nodes), and cancels exactly. Boundary (domain-edge) nodes in the pure-
+  Neumann (zero-flux) construction have no face there at all (by construction
+  -- there IS no neighbour outside the domain), so they contribute nothing
+  extra. Hence sum_k V_k*(Lap@c)_k = 0 identically, for ANY c, independent of
+  resolution -- a telescoping sum, not an asymptotic (h->0) statement.
+
+  grid 10x10, random field trial 0: sum(V*Lap@c) = -6.967e-15  OK
+  grid 10x10, random field trial 1: sum(V*Lap@c) = -6.661e-16  OK
+  grid 10x10, random field trial 2: sum(V*Lap@c) = 8.882e-16  OK
+  grid 23x17, random field trial 0: sum(V*Lap@c) = 1.066e-14  OK
+  grid 23x17, random field trial 1: sum(V*Lap@c) = 2.132e-14  OK
+  grid 23x17, random field trial 2: sum(V*Lap@c) = -1.776e-14  OK
+  grid 40x40, random field trial 0: sum(V*Lap@c) = -8.349e-14  OK
+  grid 40x40, random field trial 1: sum(V*Lap@c) = -5.507e-14  OK
+  grid 40x40, random field trial 2: sum(V*Lap@c) = 4.974e-14  OK
+
+CLAIM 3 CONFIRMED by an independently coded 5-point FV stencil across 3 grid sizes x 3 random fields each.
+
+==============================================================================
+SUMMARY
+==============================================================================
+CLAIM 1 (v_min closed form): symbolic derivation matches the formula used = True; numeric value 0.001826 vs paper's 0.0018 (1.4% relative diff)
+CLAIM 2 (v_bar via independent solver): 0.837500 vs ITEM 2's 0.8325 vs paper's 0.8396
+CLAIM 3 (2D FV Laplacian exact conservation): CONFIRMED via independent stencil
