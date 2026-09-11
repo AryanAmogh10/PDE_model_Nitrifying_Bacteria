@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite it using the metadata below.
+  Please also cite the source model paper (see preferred-citation and
+  README.md "Reference").
+title: >-
+  PDE Model for Nitrifying Bacteria in Biofilms: a slow-fast
+  finite-volume/Newton solver
+type: software
+authors:
+  - alias: AryanAmogh10
+    # TODO: replace with given-names/family-names before archiving a
+    # citable release (e.g. on Zenodo) -- the GitHub handle alone is not
+    # a proper author name for a citation record.
+    email: amogharyan8@gmail.com
+repository-code: 'https://github.com/AryanAmogh10/PDE_model_Nitrifying_Bacteria'
+# No LICENSE file exists in this repository yet -- the `license` field is
+# intentionally omitted rather than guessed. Add one (and a LICENSE file)
+# before archiving a citable release; see README.md "Archival".
+preferred-citation:
+  type: article
+  title: >-
+    A slow-fast PDE model for nitrifying bacteria in biofilms
+  authors:
+    - family-names: Freingruber
+    - family-names: Gonzalez-Cabaleiro
+    - family-names: Yoldas
+  identifiers:
+    - type: other
+      value: 'arXiv:2512.13156'
+      description: arXiv identifier for the source model paper
+  url: 'https://arxiv.org/abs/2512.13156'
