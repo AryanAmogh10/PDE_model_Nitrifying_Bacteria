@@ -78,6 +78,12 @@ nitrifiers/
         elliptic2d.py            2D substrate solver
         parabolic2d.py            2D bacterial density solver
         slowfast2d.py              2D slow-time loop
+    coupled/
+        substrate_step2d.py     time-dependent substrate step (epsilon kept)
+        coupled2d.py             fully coupled loop, substrates + bacteria share dt
+experiments/
+    <case>_<regime>/            self-contained replication folders (slow-fast)
+    coupled_competition/        epsilon scan + full run of the coupled solver
 ```
 
 `params.py` and `nondim.py` sit at the top level because both the 1D and 2D
@@ -215,6 +221,37 @@ below.
   bacterial state (Newton only, no fallback layer).
 - `run_slow_loop_2d(...)` -- the 2D equivalent of `run_slow_loop`: alternate
   substrate-solve and bacteria-advance for `n_slow_steps`.
+
+### `nitrifiers/coupled/` -- the time-dependent alternative (epsilon kept)
+
+The slow-fast solvers above drop `d(c)/dt` (epsilon -> 0). This package
+keeps it and advances substrates and bacteria together with one shared
+time step:
+
+```
+eps * d/dt c_j = Delta(c_j) + R_j(u, c)        eps = r_max * L^2 / D_j
+```
+
+- `substrate_step2d.py::step_substrate_2d(...)` -- one backward-Euler step
+  of the substrate system, Newton-solved. It reuses `elliptic2d`'s residual
+  and Jacobian and adds only the `eps/dt` mass term. There is deliberately
+  **no plausibility bound** here: the mass term makes every step solvable,
+  so a boundary influx larger than the consumption capacity accumulates
+  substrate over time instead of leaving Newton chasing a steady state that
+  does not exist -- the failure mode that forced the bound in the
+  quasi-steady solver.
+- `substrate_step2d.py::term_magnitudes(...)` -- volume-integrated size of
+  the three terms `eps*c_t`, `Delta c`, `R`. Note `|R| / |Delta c|` is ~1
+  near any quasi-steady state and says nothing about timescales; the
+  informative ratio is `eps*|c_t| / |Delta c|`.
+- `coupled2d.py::run_coupled_2d(...)` -- the loop (Lie splitting: substrate
+  step with the current `u`, then the existing implicit bacterial step with
+  the new `c`), with the same snapshot/diagnostic hooks as the slow-fast
+  driver.
+
+`eps` and `Lambda` are not independent knobs: both scale as `1/D`, so in
+this project's units `Lambda = eps / Y`. Changing one without the other is
+not a physically consistent parameter change.
 
 ## Numerics notes
 
@@ -410,6 +447,17 @@ bacteria. That choice, and the diffusivity/consumption-rate rescaling it
 forces (see Known limitations below), is the main open gap between this
 implementation and a literal reproduction of the paper's own numerics --
 tracked here rather than silently absorbed into the results.
+
+Two solver systems now exist side by side and are kept deliberately
+separate. The slow-fast (quasi-steady, `epsilon -> 0`) system is unchanged.
+The coupled system in `nitrifiers/coupled/` keeps `eps * dc/dt` and steps
+substrates and bacteria together; it needs no plausibility bound. An
+epsilon scan on 3-species competition (`experiments/coupled_competition/`)
+measured the transient term against diffusion and the coupled solution
+against QSSA: at the existing `eps = 5` the two agree to 0.09 %, the
+crossover where the substrate's own dynamics matter is `eps ~ 25`
+(`eps * l^2 ~ 1` for the colony scale `l ~ 0.2`), and at `eps = 100` they
+differ by ~10 %. `eps = 25` is the value used for the full coupled run.
 
 At a glance, what's independently verified against the paper versus what's
 still an open, flagged deviation:
