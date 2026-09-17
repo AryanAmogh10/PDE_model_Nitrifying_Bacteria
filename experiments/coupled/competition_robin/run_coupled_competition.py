@@ -20,7 +20,7 @@ import sys, time, json
 from pathlib import Path
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root, portable
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root, portable
 from nitrifiers.two_dimensional.grid2d import Grid2D
 from nitrifiers.one_dimensional.parabolic import SPECIES
 from nitrifiers.nondim import SUBSTRATES
@@ -29,7 +29,7 @@ from nitrifiers.two_dimensional.parabolic2d import solve_parabolic_2d
 from nitrifiers.coupled.coupled2d import run_coupled_2d
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "scan"
-REGIME = "neumann"  # hardcoded: this folder replicates the neumann regime only
+REGIME = "robin"  # hardcoded: this folder replicates the robin regime only
 HERE = Path(__file__).parent
 OUT = HERE / "results"
 OUT.mkdir(parents=True, exist_ok=True)

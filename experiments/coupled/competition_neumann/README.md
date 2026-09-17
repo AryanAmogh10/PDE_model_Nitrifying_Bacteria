@@ -1,7 +1,7 @@
 # Coupled (time-dependent substrate) -- 3-species competition, neumann regime
 
 Same solver, physics, initial condition, eps = 25 (Lambda = 125), grid and
-time step as `../coupled_competition_dirichlet/` (see its README for the
+time step as `../competition_dirichlet/` (see its README for the
 eps scan and the reasoning behind the choice); only the boundary regime on
 the fed substrates NH4 and NO2 differs. O2 stays Dirichlet (non-limiting
 co-substrate), NO3 keeps a Dirichlet-0 outlet.

@@ -20,7 +20,7 @@ import sys, time, json
 from pathlib import Path
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root, portable
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root, portable
 from nitrifiers.two_dimensional.grid2d import Grid2D
 from nitrifiers.one_dimensional.parabolic import SPECIES
 from nitrifiers.nondim import SUBSTRATES

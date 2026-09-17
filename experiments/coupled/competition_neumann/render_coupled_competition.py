@@ -9,7 +9,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root, portable
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root, portable
 from nitrifiers.one_dimensional.parabolic import SPECIES
 from nitrifiers.nondim import SUBSTRATES
 
