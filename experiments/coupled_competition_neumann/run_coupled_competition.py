@@ -1,5 +1,5 @@
-"""Fully time-dependent (eps kept) 3-species competition, rough IC,
-Dirichlet regime. Two modes:
+"""Fully time-dependent (eps kept) 3-species competition, rough IC, one
+boundary regime per folder (REGIME below). Two modes:
 
     python run_coupled_competition.py scan   # eps scan on a coarse grid
     python run_coupled_competition.py full   # one long run at EPS_CHOSEN
@@ -29,6 +29,7 @@ from nitrifiers.two_dimensional.parabolic2d import solve_parabolic_2d
 from nitrifiers.coupled.coupled2d import run_coupled_2d
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "scan"
+REGIME = "neumann"  # hardcoded: this folder replicates the neumann regime only
 HERE = Path(__file__).parent
 OUT = HERE / "results"
 OUT.mkdir(parents=True, exist_ok=True)
@@ -78,8 +79,27 @@ def make_coeffs(lam):
     }
 
 
-SPECS = {"NH4": ("dirichlet", C_INF), "NO2": ("dirichlet", C_INF),
-         "NO3": ("dirichlet", 0.0), "O2": ("dirichlet", C_INF)}
+def make_specs(regime, eps):
+    """Regime applies to NH4/NO2 (the fed substrates); O2 stays Dirichlet
+    (non-limiting co-substrate), NO3 stays Dirichlet 0 (outlet for the
+    produced end product). The Neumann flux is the paper's literal 1e-5
+    divided by D = 1/eps, the same D-correction the slow-fast folders use
+    (there D = 0.2, i.e. eps = 5)."""
+    if regime == "dirichlet":
+        fed = ("dirichlet", C_INF)
+    elif regime == "neumann":
+        fed = ("neumann", -(1e-5 * eps))
+    else:
+        fed = ("robin", (5.0, C_INF))
+    return {"NH4": fed, "NO2": fed, "NO3": ("dirichlet", 0.0), "O2": ("dirichlet", C_INF)}
+
+
+SPECS = make_specs(REGIME, EPS_CHOSEN)
+# paper's c(x, 0) = c_0 = 5 for the fed substrates. The substrate has memory
+# in this solver, so this matters -- under Neumann in particular the initial
+# reservoir feeds growth until depleted, whereas the quasi-steady solver can
+# hold no reservoir at all (its Neumann c sits at ~1e-4 everywhere).
+C0 = {"NH4": C_INF, "NO2": C_INF, "NO3": 0.0, "O2": C_INF}
 
 
 def setup(grid_n):
@@ -93,14 +113,14 @@ def center_index(grid_n):
     return (grid_n // 2) * (grid_n + 1) + (grid_n // 2)
 
 
-def run_qssa_reference(grid, U0, coeffs, dt, T):
+def run_qssa_reference(grid, U0, coeffs, specs, dt, T):
     """Slow-fast solver (eps -> 0) on the same grid/dt for comparison."""
     U = {s: v.copy() for s, v in U0.items()}
     cidx = center_index(grid.Nx)
     hist = [sum(float(U[s][cidx]) for s in SPECIES)]
     stalls = 0
     for _ in range(int(round(T / dt))):
-        C, _, method = solve_newton_2d(coeffs, U, grid, bc_specs=SPECS, tol=1e-6, maxiter=150)
+        C, _, method = solve_newton_2d(coeffs, U, grid, bc_specs=specs, tol=1e-6, maxiter=150)
         stalls += method == "newton_stalled"
         U, _ = solve_parabolic_2d(coeffs, C, U, grid, dt=dt, n_steps=1)
         hist.append(sum(float(U[s][cidx]) for s in SPECIES))
@@ -117,8 +137,10 @@ def scan():
         row = {"lambda": lam}
         for dt in (0.1, 0.05):
             t0 = time.time()
-            U, C, history, _, stalled = run_coupled_2d(coeffs, grid, U0, SPECS, eps=eps, dt=dt,
+            specs = make_specs(REGIME, eps)
+            U, C, history, _, stalled = run_coupled_2d(coeffs, grid, U0, specs, eps=eps, dt=dt,
                                                         n_steps=int(round(T_SCAN / dt)),
+                                                        C0={s: np.full(grid.Npts, v) for s, v in C0.items()},
                                                         record_magnitudes_every=1)
             ratios = [np.mean([h.term_magnitudes[s]["transient"] /
                                max(h.term_magnitudes[s]["diffusion"], 1e-30) for s in ("NH4", "NO2")])
@@ -137,7 +159,7 @@ def scan():
                   f"({row[f'dt={dt}']['wall_s']:.0f}s)")
         a, b = row["dt=0.1"]["center_rho_T"], row["dt=0.05"]["center_rho_T"]
         row["dt_convergence_rel_diff"] = abs(a - b) / max(abs(b), 1e-12)
-        qssa_hist, qstalls = run_qssa_reference(grid, U0, coeffs, dt=0.1, T=T_SCAN)
+        qssa_hist, qstalls = run_qssa_reference(grid, U0, coeffs, specs, dt=0.1, T=T_SCAN)
         row["qssa_center_rho_T"] = float(qssa_hist[-1])
         row["qssa_stalled"] = qstalls
         row["coupled_vs_qssa_rel_diff"] = abs(a - qssa_hist[-1]) / max(abs(qssa_hist[-1]), 1e-12)
@@ -167,14 +189,18 @@ def full():
     t0 = time.time()
     U, C, history, _, stalled = run_coupled_2d(coeffs, grid, U0, SPECS, eps=EPS_CHOSEN, dt=dt,
                                                 n_steps=int(round(T_FULL / dt)), snapshot_every=snap_every,
+                                                C0={s: np.full(grid.Npts, v) for s, v in C0.items()},
                                                 record_magnitudes_every=snap_every, on_snapshot=on_snapshot,
                                                 verbose=True)
-    print(f"done in {time.time()-t0:.0f}s, eps={EPS_CHOSEN}, lambda={lam}, stalled substrate steps={stalled}")
+    print(f"done in {time.time()-t0:.0f}s, regime={REGIME}, eps={EPS_CHOSEN}, lambda={lam}, "
+          f"stalled substrate steps={stalled}")
     np.save(OUT / "grid_shape.npy", np.array([GRID_FULL, GRID_FULL]))
     mags = {str(int(round(h.t))): h.term_magnitudes for h in history if h.term_magnitudes}
     (OUT / "term_magnitudes.json").write_text(json.dumps(mags, indent=2))
-    (OUT / "run_info.json").write_text(json.dumps({"eps": EPS_CHOSEN, "lambda": lam, "dt": dt,
-                                                    "T": T_FULL, "grid_n": GRID_FULL, "stalled": stalled}, indent=2))
+    (OUT / "run_info.json").write_text(json.dumps({"regime": REGIME, "specs": {k: list(v) if isinstance(v, tuple) else v
+                                                    for k, v in SPECS.items()}, "eps": EPS_CHOSEN, "lambda": lam,
+                                                    "dt": dt, "T": T_FULL, "grid_n": GRID_FULL, "stalled": stalled},
+                                                   indent=2, default=str))
 
 
 if __name__ == "__main__":

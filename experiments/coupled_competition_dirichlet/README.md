@@ -1,12 +1,22 @@
-# Coupled (time-dependent substrate) -- 3-species competition, Dirichlet
+# Coupled (time-dependent substrate) -- 3-species competition, dirichlet regime
 
 The slow-fast solver treats the substrates as quasi-steady (epsilon -> 0):
 one timescale fully resolves before the other moves, which is what makes
 the QSSA and its plausibility bound necessary. This folder runs the same
-competition problem (Case A physics, 300-circle rough initial condition,
-Dirichlet c_inf = 5) on the parallel solver in `nitrifiers/coupled/`, which
-keeps `eps * dc/dt` and advances substrates and bacteria together with one
-shared time step.
+competition problem (Case A physics, 300-circle rough initial condition)
+on the parallel solver in `nitrifiers/coupled/`, which keeps `eps * dc/dt`
+and advances substrates and bacteria together with one shared time step.
+The regime (Dirichlet / Neumann / Robin on the fed substrates NH4, NO2) is
+hardcoded per folder; O2 stays Dirichlet and NO3 keeps a Dirichlet-0
+outlet, as in the slow-fast folders. The eps scan below was run in this
+(Dirichlet) folder; the `_neumann` and `_robin` folders reuse eps = 25.
+
+The substrate has memory in this solver, so `c(x, 0)` matters and is set to
+the paper's `c_0 = 5` for the fed substrates in every regime. For Neumann
+this is a real difference from the slow-fast runs: a quasi-steady solve can
+hold no reservoir (its Neumann `c` sits at ~1e-4 everywhere, fixed by the
+tiny flux), whereas here the initial reservoir feeds growth until it is
+depleted -- which is what the paper's setup describes.
 
 ```
 python run_coupled_competition.py scan    # ~12 min, 50x50 grid
@@ -71,5 +81,6 @@ dt = 0.1 is converged to 0.3 %. Two consequences worth stating plainly:
   `run_info.json`).
 - `render_coupled_competition.py` -- bacteria and substrate grids every 5
   time units, plus the transient/diffusion ratio over time.
-- `coupled_competition_bacteria.png`, `coupled_competition_substrates.png`,
-  `coupled_competition_term_ratio.png` -- outputs of the full run.
+- `coupled_competition_dirichlet_bacteria.png`,
+  `coupled_competition_dirichlet_substrates.png`,
+  `coupled_competition_dirichlet_term_ratio.png` -- outputs of the full run.

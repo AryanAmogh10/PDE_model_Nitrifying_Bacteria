@@ -83,7 +83,7 @@ nitrifiers/
         coupled2d.py             fully coupled loop, substrates + bacteria share dt
 experiments/
     <case>_<regime>/            self-contained replication folders (slow-fast)
-    coupled_competition/        epsilon scan + full run of the coupled solver
+    coupled_competition_<regime>/  coupled solver: eps scan (dirichlet) + full runs
 ```
 
 `params.py` and `nondim.py` sit at the top level because both the 1D and 2D
@@ -452,7 +452,7 @@ Two solver systems now exist side by side and are kept deliberately
 separate. The slow-fast (quasi-steady, `epsilon -> 0`) system is unchanged.
 The coupled system in `nitrifiers/coupled/` keeps `eps * dc/dt` and steps
 substrates and bacteria together; it needs no plausibility bound. An
-epsilon scan on 3-species competition (`experiments/coupled_competition/`)
+epsilon scan on 3-species competition (`experiments/coupled_competition_dirichlet/`)
 measured the transient term against diffusion and the coupled solution
 against QSSA: at the existing `eps = 5` the two agree to 0.09 %, the
 crossover where the substrate's own dynamics matter is `eps ~ 25`

@@ -16,7 +16,7 @@ from nitrifiers.nondim import SUBSTRATES
 HERE = Path(__file__).parent
 RESULTS_DIR = HERE / "results"
 info = json.loads((RESULTS_DIR / "run_info.json").read_text())
-EPS, LAM = info["eps"], info["lambda"]
+EPS, LAM, REGIME = info["eps"], info["lambda"], info.get("regime", "dirichlet")
 
 TIMES = list(range(0, int(info["T"]) + 1, 5))
 cmap_u1 = LinearSegmentedColormap.from_list("white_to_darkgreen", ["white", "darkgreen"])
@@ -52,7 +52,7 @@ def render_grid(field_getter, rows, row_label, row_cmap, out_name, suptitle, per
             if j == 0:
                 ax.set_ylabel(f"{row_label[r]}\n(peak={row_vmax:.3g})", fontsize=9)
         fig.colorbar(cf, ax=axes[i, :].tolist(), fraction=0.01, pad=0.01)
-    fig.suptitle(f"{suptitle} -- coupled (eps={EPS:g}, Lambda={LAM:g}), Dirichlet"
+    fig.suptitle(f"{suptitle} -- coupled (eps={EPS:g}, Lambda={LAM:g}), {REGIME} regime"
                  + ("" if per_row_scale else f", peak={global_vmax:.3g}"), fontsize=13)
     out = HERE / out_name
     fig.savefig(out, dpi=110, bbox_inches="tight"); plt.close(fig)
@@ -67,9 +67,9 @@ def get_c(sub, t):
     return np.load(RESULTS_DIR / f"t{t}_c_{sub}.npy").reshape(SHAPE)
 
 
-render_grid(get_u, SPECIES, SPECIES_LABEL, SPECIES_CMAP, "coupled_competition_bacteria.png",
+render_grid(get_u, SPECIES, SPECIES_LABEL, SPECIES_CMAP, f"coupled_competition_{REGIME}_bacteria.png",
             "Bacterial densities (300-circle rough IC)")
-render_grid(get_c, SUBSTRATES, SUB_LABEL, SUB_CMAP, "coupled_competition_substrates.png",
+render_grid(get_c, SUBSTRATES, SUB_LABEL, SUB_CMAP, f"coupled_competition_{REGIME}_substrates.png",
             "Substrate concentrations", per_row_scale=True)
 
 mags = json.loads((RESULTS_DIR / "term_magnitudes.json").read_text())
@@ -80,8 +80,8 @@ for sub in ("NH4", "NO2", "NO3"):
     ax.plot(ts, ratio, marker="o", ms=3, label=SUB_LABEL[sub])
 ax.axhline(1.0, color="k", lw=0.8, ls="--")
 ax.set_yscale("log"); ax.set_xlabel("t"); ax.set_ylabel(r"$\int \epsilon |c_t| \,/\, \int |\nabla^2 c|$")
-ax.set_title(f"Transient vs diffusion term, eps={EPS:g} (<<1: QSSA valid, ~1: comparable timescales)")
+ax.set_title(f"Transient vs diffusion term, eps={EPS:g}, {REGIME} (<<1: QSSA valid, ~1: comparable)")
 ax.legend()
-out = HERE / "coupled_competition_term_ratio.png"
+out = HERE / f"coupled_competition_{REGIME}_term_ratio.png"
 fig.savefig(out, dpi=130, bbox_inches="tight"); plt.close(fig)
 print("saved", out)
