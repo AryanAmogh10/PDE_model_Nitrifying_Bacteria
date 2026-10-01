@@ -356,6 +356,35 @@ def test_2d_robin_degenerate_limits_and_mass_balance():
     assert abs(influx + consumption) < 1e-10, (influx, consumption)
 
 
+def test_2d_warm_start_c_init_reaches_the_same_solution_in_fewer_iterations():
+    """C_init: a warm start must land on the same fixed point as the cold
+    start (to solver tolerance), restarting from an already-converged field
+    must need no further work, and a slightly changed U must be reached from
+    the previous solution in fewer iterations than from the cold start."""
+    coeffs = elliptic_coefficients("toy")
+    g = Grid2D(Nx=30, Ny=30)
+    bump = np.exp(-((g.X - 0.5) ** 2 + (g.Y - 0.5) ** 2) / 0.15 ** 2).ravel()
+    U1 = {sp: 0.02 * bump for sp in SPECIES}
+    U2 = {sp: 0.021 * bump for sp in SPECIES}
+    bc_specs = {"NH4": ("dirichlet", 1.0), "O2": ("neumann", 0.0),
+                "NO2": ("dirichlet", 0.0), "NO3": ("dirichlet", 0.0)}
+    kw = dict(bc_specs=bc_specs, tol=1e-10, maxiter=100)
+
+    C1, h1, m1 = solve_newton_2d(coeffs, U1, g, **kw)
+    assert m1 == "newton"
+    C1b, h1b, m1b = solve_newton_2d(coeffs, U1, g, C_init=C1, **kw)
+    assert m1b == "newton" and len(h1b) - 1 <= 1
+    for sub in SUBSTRATES:
+        assert np.max(np.abs(C1b[sub] - C1[sub])) < 1e-9
+
+    C2_cold, h2_cold, _ = solve_newton_2d(coeffs, U2, g, **kw)
+    C2_warm, h2_warm, m2 = solve_newton_2d(coeffs, U2, g, C_init=C1, **kw)
+    assert m2 == "newton"
+    assert len(h2_warm) < len(h2_cold)
+    for sub in SUBSTRATES:
+        assert np.max(np.abs(C2_warm[sub] - C2_cold[sub])) < 1e-7
+
+
 if __name__ == "__main__":
     test_control_volumes_are_exact()
     test_laplacian_2d_is_exactly_mass_conservative()
@@ -369,4 +398,5 @@ if __name__ == "__main__":
     test_2d_neumann_nonzero_flux_converges_and_matches_prescribed_value()
     test_2d_robin_jacobian_matches_finite_difference()
     test_2d_robin_degenerate_limits_and_mass_balance()
+    test_2d_warm_start_c_init_reaches_the_same_solution_in_fewer_iterations()
     print("All 2D extension validation checks passed.")

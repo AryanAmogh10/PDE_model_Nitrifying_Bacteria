@@ -86,6 +86,8 @@ experiments/
     coupled/
         competition_<regime>/    coupled solver: eps scan (dirichlet) + full runs
         commensalism_<regime>/    coupled solver, commensalism chain
+simulation_experiments/
+    step1_isolation/            AOB vs CMX in isolation, rebeca and eloi presets
 ```
 
 `params.py` and `nondim.py` sit at the top level because both the 1D and 2D

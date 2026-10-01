@@ -106,7 +106,8 @@ def solve_newton_2d(coeffs: dict, U: dict, grid: Grid2D,
                      boundary_nodes: np.ndarray | None = None,
                      tol: float = 1e-10, maxiter: int = 60,
                      damped: bool = True, max_backtracks: int = 30,
-                     c_max_factor: float = 5.0, verbose: bool = False):
+                     c_max_factor: float = 5.0, verbose: bool = False,
+                     C_init: dict | None = None):
     Npts = grid.Npts
     U = {sp_name: np.asarray(v).ravel() for sp_name, v in U.items()}
     bc_specs = normalize_bc_specs_2d(coeffs, bc_type, bc_specs)
@@ -124,6 +125,9 @@ def solve_newton_2d(coeffs: dict, U: dict, grid: Grid2D,
     # (never 0.0 -- Monod(0)=0 would zero the reaction Jacobian at iterate 0)
     C = {}
     for sub, (bt, val) in bc_specs.items():
+        if C_init is not None:
+            C[sub] = np.clip(np.asarray(C_init[sub], dtype=float).ravel(), 0.0, c_max)
+            continue
         if bt == "dirichlet":
             start = val
         elif bt == "robin":
