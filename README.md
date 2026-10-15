@@ -88,6 +88,7 @@ experiments/
         commensalism_<regime>/    coupled solver, commensalism chain
 simulation_experiments/
     step1_isolation/            AOB vs CMX in isolation, rebeca and eloi presets
+PARAMETERS.md                   every parameter regime used in the simulations
 ```
 
 `params.py` and `nondim.py` sit at the top level because both the 1D and 2D
