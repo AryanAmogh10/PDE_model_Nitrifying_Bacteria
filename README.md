@@ -87,7 +87,10 @@ experiments/
         competition_<regime>/    coupled solver: eps scan (dirichlet) + full runs
         commensalism_<regime>/    coupled solver, commensalism chain
 simulation_experiments/
-    step1_isolation/            AOB vs CMX in isolation, rebeca and eloi presets
+    common.py                   shared setup: equal initial masses, units, run loop
+    base_case/                  AOB, CMX and combined systems at one operating point
+    heatmap/                    AOB vs CMX dominance over NH4 and O2 boundary values
+    step1_isolation/            first isolation runs (superseded by base_case)
 PARAMETERS.md                   every parameter regime used in the simulations
 ```
 

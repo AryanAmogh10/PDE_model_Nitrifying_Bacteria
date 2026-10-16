@@ -3,10 +3,79 @@
 Question: how do ammonium and oxygen availability influence competition
 between AOB and comammox (CMX) in a spatially growing bacterial community?
 
-The work follows the plan in `simulation_experiments.pdf`. Step 1 (AOB and
-CMX in isolation) is done and documented here. Steps 2 (competition
-measures) and 3 (the NH4/O2 sweep) are not started. Step 4 (Robin boundary
-conditions) is deliberately left until after a meeting, as suggested.
+The work follows the plan in `simulation_experiments.pdf`.
+
+## Current setup: base case and heatmap
+
+`common.py` holds the shared setup; `base_case/` and `heatmap/` use it. They
+supersede Step 1 (further below), which started AOB with half the mass of CMX
+and used O2_BC = 5 nondimensional = 2500 uM, about 10x air saturation.
+
+- Preset `eloi` (CMX ~22x higher NH4 affinity, AOB ~14x faster growth).
+  `rebeca` gives every species the same affinity, so it cannot show the
+  affinity-driven AOB/CMX transition.
+- Every species starts with the same mass M0 = 4.75 ug per mm depth (the
+  300-circle pattern, each species rescaled). The isolated systems are the
+  combined system with species removed, so differences between isolated and
+  combined runs come only from competition.
+- Physical units: time in days (1 solver unit = 1/r_max = 1.05 days), space
+  in um (L = 500 um), concentrations in uM (c_ref = 500 uM), biomass in ug per
+  mm depth (the model is 2D), substrate amounts in umol per mm depth.
+- Dirichlet substrate boundaries (NO2 = NO3 = 0), Case A motility, survival
+  cutoff u < 1e-6, warm-started quasi-steady substrate solves, dt = 0.5.
+- Each run stops just before biomass reaches the domain boundary, or at
+  60 solver units (63 days).
+- F_CMX = M_CMX / (M_AOB + M_CMX) (NOB ignored); it starts at exactly 0.5.
+
+### Base case (NH4_BC = 100 uM, O2_BC = 250 uM, 100x100 grid)
+
+Compared at 56.4 days, before any system reaches the boundary. All three
+runs: 0 Newton stalls. Values in ug per mm depth (biomass) and umol per mm
+depth (amounts).
+
+| | combined | AOB system | CMX system |
+|---|---|---|---|
+| AOB biomass | 10.19 | 10.68 | - |
+| NOB biomass | 5.52 | 6.28 | - |
+| CMX biomass | 3.88 | - | 12.02 |
+| NO3 produced | 8.44 | 8.40 | 5.60 |
+| NH4 consumed | 11.78 | 11.74 | 5.60 |
+| O2 consumed | 21.88 | 21.81 | 11.21 |
+| NO2 lost through the boundary | 3.33 | 3.34 | 0 |
+
+- CMX in the combined system ends at 32 % of its isolated biomass (3.88
+  against 12.02) and below its initial mass; AOB keeps 95 % of its isolated
+  biomass. F_CMX rises to 0.57 at ~10 days (AOB declines in its lag phase),
+  then falls to 0.28 once AOB takes off at the colony rim.
+- Nitrification in the combined system runs almost entirely through AOB+NOB:
+  its NO3, NH4, O2 and NO2 figures are within 0.5 % of the AOB system's.
+
+Plots: `base_case/base_case_comparison.png` and
+`base_case/base_case_{all,aob,cmx}_fields.png`; numbers in
+`base_case/base_case_summary.json`.
+
+### Heatmap (50x50 grid; 100x100 still running)
+
+NH4_BC = 0.5 to 1000 uM (9 values, log-spaced), O2_BC = 5, 15, 40, 100,
+250 uM. The committed plots and `heatmap/heatmap_summary.json` are from the
+completed 50x50 sweep. The 100x100 sweeps (combined, and CMX alone for the
+competitive-loss panel) are still running and will replace them.
+
+- F_CMX crosses 0.5 at NH4_BC ~ 36 uM for O2 = 100 and 250 uM; at O2 <= 40 uM
+  it stays above 0.5 everywhere.
+- CMX never grows in the combined system anywhere on the map (0.79-0.86 of its
+  initial mass). The F_CMX > 0.5 region is where AOB declines faster (AOB
+  decays 14x faster than CMX), not where CMX wins by growing. AOB grows only
+  for NH4_BC >= ~58 uM and O2_BC >= 100 uM.
+- Resolution matters: for the base case the 50x50 run reaches the boundary at
+  t = 39 against 54 on 100x100, and F_CMX at t = 38.5 is 0.33 against 0.40.
+  Treat the 50x50 transition value as approximate.
+
+To reproduce: `python base_case/run_base_case.py`, then
+`python base_case/render_base_case.py`; `python heatmap/run_heatmap.py all 99 8`,
+`python heatmap/run_heatmap.py cmx 99 4`, then `python heatmap/render_heatmap.py 99`.
+
+## Step 1 (superseded)
 
 ## Layout
 

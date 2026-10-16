@@ -9,3 +9,4 @@ experiments/*/results/
 experiments/coupled/*/results/
 simulation_experiments/*/results/
 simulation_experiments/*/*.log
+simulation_experiments/*/results_*/
