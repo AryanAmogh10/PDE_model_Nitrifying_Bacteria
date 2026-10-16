@@ -4,7 +4,8 @@
   heatmap_growth.png       growth of AOB and CMX in the combined system, and
                            CMX in the combined system relative to CMX alone
   heatmap_resolution.png   F_CMX on 50x50 against 100x100
-    python render_heatmap.py [N]"""
+    python render_heatmap.py [N] [T_max]
+Outputs carry a _N<N>_T<T_max> suffix unless N = 99 and T_max = 60."""
 import sys, json
 from pathlib import Path
 import numpy as np
@@ -19,6 +20,8 @@ import common as c
 from run_heatmap import NH4_UM, O2_UM, PRESET, point_file
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 99
+T_MAX = float(sys.argv[2]) if len(sys.argv) > 2 else 60.0
+TAG = "" if (N == 99 and T_MAX == 60.0) else f"_N{N}_T{T_MAX:g}"
 u = c.Units(PRESET)
 nI, nJ = len(NH4_UM), len(O2_UM)
 
@@ -27,7 +30,7 @@ def load(system, n):
     recs = {}
     for i in range(nI):
         for j in range(nJ):
-            f = point_file(i, j, system, n)
+            f = point_file(i, j, system, n, T_MAX)
             if f.exists():
                 recs[(i, j)] = json.loads(f.read_text())
     return recs
@@ -100,19 +103,20 @@ ax[1].axhline(0.5, color="grey", lw=0.8, ls="--")
 ax[1].set_ylim(0, 1); ax[1].set_xlabel("NH4 at boundary [uM]"); ax[1].set_ylabel("F_CMX [-]")
 ax[1].set_title("F_CMX against NH4 at fixed O2\n(dotted: transition, F_CMX = 0.5)", fontsize=10); ax[1].legend(fontsize=8)
 cells(ax[2], T, "{:.0f}", "viridis", None, None,
-      "Stop time [days]: just before reaching the boundary\n(* in the left panel: never reached it, stopped at 63 days)", "days", txtcolor="w")
-fig.suptitle(f"AOB vs CMX ({PRESET}), combined system, equal initial AOB and CMX mass, NOB ignored in F, {grid_label}", fontsize=12)
-fig.tight_layout(); fig.savefig(HERE / "heatmap_F_cmx.png", dpi=130); plt.close(fig)
-print("saved heatmap_F_cmx.png")
+      f"Stop time [days]: just before reaching the boundary\n(* in the left panel: never reached it, stopped at {u.days(T_MAX):.0f} days)", "days", txtcolor="w")
+fig.suptitle(f"AOB vs CMX ({PRESET}), combined system, equal initial AOB and CMX mass, NOB ignored in F, {grid_label}, "
+             f"run limit {u.days(T_MAX):.0f} days", fontsize=12)
+fig.tight_layout(); fig.savefig(HERE / f"heatmap_F_cmx{TAG}.png", dpi=130); plt.close(fig)
+print(f"saved heatmap_F_cmx{TAG}.png")
 
 fig, ax = plt.subplots(1, 3, figsize=(19, 5.6))
 cells(ax[0], gA, "{:.2f}", "RdBu", 0, 2, "AOB growth in the combined system\nM_AOB(stop) / M_AOB(0)  (>1 grows, <1 declines)", "[-]")
 cells(ax[1], gC, "{:.2f}", "RdBu", 0, 2, "CMX growth in the combined system\nM_CMX(stop) / M_CMX(0)", "[-]")
 cells(ax[2], ratio, "{:.2f}", "magma", 0, 1, "CMX in the combined system relative to CMX alone\nM_CMX(combined) / M_CMX(alone) at the same time", "[-]",
       txtcolor="w")
-fig.suptitle(f"Growth and competitive loss ({PRESET}, {grid_label})", fontsize=12)
-fig.tight_layout(); fig.savefig(HERE / "heatmap_growth.png", dpi=130); plt.close(fig)
-print("saved heatmap_growth.png")
+fig.suptitle(f"Growth and competitive loss ({PRESET}, {grid_label}, run limit {u.days(T_MAX):.0f} days)", fontsize=12)
+fig.tight_layout(); fig.savefig(HERE / f"heatmap_growth{TAG}.png", dpi=130); plt.close(fig)
+print(f"saved heatmap_growth{TAG}.png")
 
 coarse = load("all", 49)
 if coarse and N != 49:
@@ -122,15 +126,15 @@ if coarse and N != 49:
     cells(ax[1], F, "{:.2f}", "PRGn_r", 0, 1, f"F_CMX, {grid_label}", "F_CMX [-]")
     cells(ax[2], F - Fc, "{:+.2f}", "coolwarm", -0.3, 0.3, f"difference ({grid_label} minus 50x50)", "[-]")
     fig.suptitle("Grid resolution check (each point at its own stop time)", fontsize=12)
-    fig.tight_layout(); fig.savefig(HERE / "heatmap_resolution.png", dpi=130); plt.close(fig)
-    print("saved heatmap_resolution.png")
+    fig.tight_layout(); fig.savefig(HERE / f"heatmap_resolution{TAG}.png", dpi=130); plt.close(fig)
+    print(f"saved heatmap_resolution{TAG}.png")
 
 
 def tolist(G, nd=4):
     return [[None if not np.isfinite(v) else round(float(v), nd) for v in row] for row in G]
 
 
-summary = {"grid": grid_label, "NH4_uM": NH4_UM.tolist(), "O2_uM": O2_UM.tolist(), "rows_are": "O2_uM", "cols_are": "NH4_uM",
+summary = {"grid": grid_label, "T_max": T_MAX, "T_max_days": round(float(u.days(T_MAX)), 1), "NH4_uM": NH4_UM.tolist(), "O2_uM": O2_UM.tolist(), "rows_are": "O2_uM", "cols_are": "NH4_uM",
            "F_CMX": tolist(F), "stop_days": tolist(T, 2), "touched_boundary": touched.tolist(),
            "AOB_growth": tolist(gA, 3), "CMX_growth": tolist(gC, 3), "CMX_alone_growth": tolist(gC_alone, 3),
            "CMX_combined_over_alone": tolist(ratio, 3),
@@ -139,5 +143,5 @@ summary = {"grid": grid_label, "NH4_uM": NH4_UM.tolist(), "O2_uM": O2_UM.tolist(
 if coarse and N != 49:
     summary["F_CMX_50x50"] = tolist(grid_of(coarse, lambda r: r["F_CMX"]))
     summary["transition_NH4_uM_50x50"] = {f"{O2_UM[j]:g}": [round(x, 2) for x in transition(grid_of(coarse, lambda r: r["F_CMX"]), j)] for j in range(nJ)}
-(HERE / "heatmap_summary.json").write_text(json.dumps(summary, indent=1))
+(HERE / f"heatmap_summary{TAG}.json").write_text(json.dumps(summary, indent=1))
 print(json.dumps(summary["transition_NH4_uM"]))

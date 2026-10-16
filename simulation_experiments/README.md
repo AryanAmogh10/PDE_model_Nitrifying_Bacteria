@@ -120,6 +120,50 @@ What this shows:
   pattern, with F_CMX within 0.07 of the 100x100 values and transitions at
   36 uM for both O2 = 100 and 250 uM (against 39 and 34 here).
 
+### Longer run limit (50x50 grid, 211 days)
+
+At 63 days most runs had not reached the boundary, so the sweep was repeated
+with a run limit of 200 solver units (211 days) on the 50x50 grid (90 runs,
+0 Newton stalls). Now 34 of 45 combined-system runs reach the boundary
+before the limit; only NH4 <= 1.3 uM (and NH4 = 3.3 uM at O2 = 5 uM) still
+run to the limit. A 100x100 confirmation at this limit is running. Plots:
+`heatmap/heatmap_F_cmx_N49_T200.png`, `heatmap/heatmap_growth_N49_T200.png`;
+numbers in `heatmap/heatmap_summary_N49_T200.json`.
+
+F_CMX at stop time:
+
+| O2 \ NH4 | 0.5 | 1.3 | 3.3 | 8.6 | 22 | 58 | 150 | 387 | 1000 |
+|---|---|---|---|---|---|---|---|---|---|
+| 250 | 0.96 | 0.89 | 0.82 | 0.72 | 0.58 | 0.42 | 0.27 | 0.24 | 0.24 |
+| 100 | 0.96 | 0.89 | 0.82 | 0.72 | 0.58 | 0.42 | 0.37 | 0.37 | 0.38 |
+| 40  | 0.96 | 0.89 | 0.81 | 0.72 | 0.58 | 0.53 | 0.54 | 0.54 | 0.54 |
+| 15  | 0.96 | 0.90 | 0.80 | 0.71 | 0.69 | 0.69 | 0.69 | 0.69 | 0.69 |
+| 5   | 0.96 | 0.93 | 0.83 | 0.78 | 0.79 | 0.79 | 0.79 | 0.79 | 0.79 |
+
+Stop time [days]:
+
+| O2 \ NH4 | 0.5 | 1.3 | 3.3 | 8.6 | 22 | 58 | 150 | 387 | 1000 |
+|---|---|---|---|---|---|---|---|---|---|
+| 250 | 211 | 211 | 124 | 77 | 55 | 44 | 39 | 37 | 37 |
+| 100 | 211 | 211 | 126 | 79 | 57 | 50 | 46 | 45 | 45 |
+| 40  | 211 | 211 | 133 | 85 | 70 | 60 | 58 | 58 | 58 |
+| 15  | 211 | 211 | 155 | 119 | 93 | 87 | 86 | 86 | 86 |
+| 5   | 211 | 211 | 211 | 184 | 168 | 162 | 160 | 159 | 159 |
+
+- The transitions do not move: F_CMX = 0.5 at NH4 = 36 uM for O2 = 100 and
+  250 uM, none at O2 <= 40 uM (lowest value there 0.53).
+- CMX still never grows in the combined system (0.62-0.86 of its initial
+  mass), while alone it grows wherever NH4 >= ~9 uM and O2 >= 40 uM (up to
+  x2.35). In the combined system it keeps 36-90 % of its isolated biomass.
+- What changes is the slow-decline corner: at low NH4 or low O2 both species
+  keep decaying, AOB faster (down to 0.02-0.03), so F_CMX there drifts up
+  (0.96 at NH4 = 0.5 uM) or down (0.69-0.79 at O2 <= 15 uM) with time. Those
+  values depend on the run limit and say more about decay rates than about
+  competition.
+- Reaching the boundary does not imply growth: at O2 = 5 uM the colony
+  reaches it after 159-184 days while both species shrink, because the
+  pressure-driven spreading pushes existing biomass outwards.
+
 To reproduce: `python base_case/run_base_case.py`, then
 `python base_case/render_base_case.py`; `python heatmap/run_heatmap.py all 99 8`,
 `python heatmap/run_heatmap.py cmx 99 4` (and `all 49 8` for the grid check), then `python heatmap/render_heatmap.py 99`.
