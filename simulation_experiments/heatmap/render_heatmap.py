@@ -72,6 +72,8 @@ def transition(G, j):
 
 
 def cells(ax, G, fmt, cmap, vmin, vmax, title, cbar, mark=None, txtcolor="k"):
+    if not np.isfinite(G).any():
+        raise SystemExit(f"no data for panel '{title.splitlines()[0]}': run the missing sweep first")
     im = ax.pcolormesh(np.arange(nI + 1), np.arange(nJ + 1), G, cmap=cmap, vmin=vmin, vmax=vmax, shading="flat")
     for j in range(nJ):
         for i in range(nI):

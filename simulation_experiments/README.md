@@ -54,26 +54,75 @@ Plots: `base_case/base_case_comparison.png` and
 `base_case/base_case_{all,aob,cmx}_fields.png`; numbers in
 `base_case/base_case_summary.json`.
 
-### Heatmap (50x50 grid; 100x100 still running)
+### Heatmap (100x100 grid)
 
 NH4_BC = 0.5 to 1000 uM (9 values, log-spaced), O2_BC = 5, 15, 40, 100,
-250 uM. The committed plots and `heatmap/heatmap_summary.json` are from the
-completed 50x50 sweep. The 100x100 sweeps (combined, and CMX alone for the
-competitive-loss panel) are still running and will replace them.
+250 uM; one combined-system run and one CMX-alone run per point (90 runs,
+0 Newton stalls). Most runs never reach the boundary and stop at 63 days;
+only O2 = 250 uM with NH4 >= 150 uM touches it (at 50-54 days). Rows are
+O2_BC [uM], columns NH4_BC [uM]. Plots: `heatmap/heatmap_F_cmx.png`,
+`heatmap/heatmap_growth.png`, `heatmap/heatmap_resolution.png`; all numbers in
+`heatmap/heatmap_summary.json`.
 
-- F_CMX crosses 0.5 at NH4_BC ~ 36 uM for O2 = 100 and 250 uM; at O2 <= 40 uM
-  it stays above 0.5 everywhere.
-- CMX never grows in the combined system anywhere on the map (0.79-0.86 of its
-  initial mass). The F_CMX > 0.5 region is where AOB declines faster (AOB
-  decays 14x faster than CMX), not where CMX wins by growing. AOB grows only
-  for NH4_BC >= ~58 uM and O2_BC >= 100 uM.
-- Resolution matters: for the base case the 50x50 run reaches the boundary at
-  t = 39 against 54 on 100x100, and F_CMX at t = 38.5 is 0.33 against 0.40.
-  Treat the 50x50 transition value as approximate.
+F_CMX = M_CMX / (M_AOB + M_CMX) at stop time (starts at 0.5):
+
+| O2 \ NH4 | 0.5 | 1.3 | 3.3 | 8.6 | 22 | 58 | 150 | 387 | 1000 |
+|---|---|---|---|---|---|---|---|---|---|
+| 250 | 0.90 | 0.89 | 0.87 | 0.79 | 0.62 | 0.35 | 0.23 | 0.20 | 0.20 |
+| 100 | 0.90 | 0.89 | 0.87 | 0.80 | 0.62 | 0.41 | 0.33 | 0.32 | 0.32 |
+| 40  | 0.90 | 0.89 | 0.87 | 0.80 | 0.68 | 0.60 | 0.59 | 0.59 | 0.59 |
+| 15  | 0.90 | 0.89 | 0.88 | 0.83 | 0.80 | 0.79 | 0.79 | 0.79 | 0.79 |
+| 5   | 0.90 | 0.89 | 0.88 | 0.87 | 0.87 | 0.87 | 0.87 | 0.87 | 0.87 |
+
+Transition (F_CMX = 0.5): NH4_BC = 39 uM at O2 = 100 uM and 34 uM at
+O2 = 250 uM; no transition at O2 <= 40 uM.
+
+Growth factor M(stop) / M(0):
+
+| row \ NH4 [uM] | 0.5 | 1.3 | 3.3 | 8.6 | 22 | 58 | 150 | 387 | 1000 |
+|---|---|---|---|---|---|---|---|---|---|
+| AOB, combined, O2 250 | 0.09 | 0.10 | 0.12 | 0.21 | 0.50 | 1.49 | 2.79 | 3.24 | 3.20 |
+| AOB, combined, O2 100 | 0.09 | 0.10 | 0.12 | 0.21 | 0.48 | 1.14 | 1.64 | 1.68 | 1.69 |
+| AOB, combined, O2 40  | 0.09 | 0.10 | 0.12 | 0.20 | 0.38 | 0.54 | 0.55 | 0.56 | 0.56 |
+| CMX, combined, all O2 | 0.79-0.80 | 0.80 | 0.80-0.81 | 0.79-0.81 | 0.79-0.81 | 0.79-0.80 | 0.79-0.82 | 0.79-0.82 | 0.79-0.82 |
+| CMX alone, O2 250 | 0.86 | 0.88 | 0.93 | 1.04 | 1.32 | 2.00 | 2.84 | 2.73 | 2.71 |
+| CMX alone, O2 100 | 0.86 | 0.88 | 0.93 | 1.04 | 1.32 | 1.83 | 1.84 | 1.84 | 1.84 |
+| CMX alone, O2 40  | 0.86 | 0.88 | 0.93 | 1.04 | 1.25 | 1.25 | 1.25 | 1.25 | 1.25 |
+| CMX alone, O2 15  | 0.86 | 0.88 | 0.92 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
+| CMX alone, O2 5   | 0.86 | 0.88 | 0.90 | 0.90 | 0.90 | 0.90 | 0.90 | 0.90 | 0.90 |
+
+(AOB at O2 = 15 and 5 uM: 0.09-0.21 everywhere. CMX alone is read at the
+same time as the combined run.)
+
+M_CMX(combined) / M_CMX(alone), the competitive loss of CMX:
+
+| O2 \ NH4 | 0.5 | 1.3 | 3.3 | 8.6 | 22 | 58 | 150 | 387 | 1000 |
+|---|---|---|---|---|---|---|---|---|---|
+| 250 | 0.92 | 0.91 | 0.87 | 0.78 | 0.61 | 0.40 | 0.29 | 0.30 | 0.30 |
+| 100 | 0.92 | 0.91 | 0.87 | 0.78 | 0.61 | 0.44 | 0.43 | 0.43 | 0.43 |
+| 40  | 0.92 | 0.91 | 0.87 | 0.78 | 0.64 | 0.63 | 0.63 | 0.63 | 0.63 |
+| 15  | 0.92 | 0.91 | 0.88 | 0.81 | 0.79 | 0.79 | 0.79 | 0.79 | 0.79 |
+| 5   | 0.92 | 0.91 | 0.89 | 0.88 | 0.88 | 0.88 | 0.88 | 0.88 | 0.88 |
+
+What this shows:
+
+- CMX never grows in the combined system (0.79-0.82 everywhere), although it
+  grows alone wherever NH4 >= ~9 uM and O2 >= 40 uM (up to x2.8). AOB, at the
+  colony rim and growing 14x faster, takes the NH4 and O2 before it reaches
+  CMX.
+- The competitive loss is largest where AOB grows best (CMX keeps only 29 %
+  of its isolated biomass at high NH4 and O2 = 250 uM) and small at low NH4
+  or low O2 (88-92 %), where the substrate supply itself limits CMX.
+- F_CMX > 0.5 does not mean CMX wins. It marks where AOB collapses (down to
+  0.09) faster than CMX, which decays 14x more slowly. Within these 63 days
+  there is no condition under which CMX outgrows AOB in the combined system.
+- Grid check (`heatmap_resolution.png`): the 50x50 sweep gives the same
+  pattern, with F_CMX within 0.07 of the 100x100 values and transitions at
+  36 uM for both O2 = 100 and 250 uM (against 39 and 34 here).
 
 To reproduce: `python base_case/run_base_case.py`, then
 `python base_case/render_base_case.py`; `python heatmap/run_heatmap.py all 99 8`,
-`python heatmap/run_heatmap.py cmx 99 4`, then `python heatmap/render_heatmap.py 99`.
+`python heatmap/run_heatmap.py cmx 99 4` (and `all 49 8` for the grid check), then `python heatmap/render_heatmap.py 99`.
 
 ## Step 1 (superseded)
 
