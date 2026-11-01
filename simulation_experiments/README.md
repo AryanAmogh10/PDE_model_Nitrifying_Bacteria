@@ -23,8 +23,9 @@ and used O2_BC = 5 nondimensional = 2500 uM, about 10x air saturation.
   mm depth (the model is 2D), substrate amounts in umol per mm depth.
 - Dirichlet substrate boundaries (NO2 = NO3 = 0), Case A motility, survival
   cutoff u < 1e-6, warm-started quasi-steady substrate solves, dt = 0.5.
-- Each run stops just before biomass reaches the domain boundary, or at
-  60 solver units (63 days).
+- Each run stops just before biomass reaches the domain boundary, or at the
+  run limit: 60 solver units (63 days) in the first sweeps, 100 and 150
+  units (105 and 158 days) in the later ones.
 - F_CMX = M_CMX / (M_AOB + M_CMX) (NOB ignored); it starts at exactly 0.5.
 
 ### Base case (NH4_BC = 100 uM, O2_BC = 250 uM, 100x100 grid)
@@ -126,7 +127,8 @@ At 63 days most runs had not reached the boundary, so the sweep was repeated
 with a run limit of 200 solver units (211 days) on the 50x50 grid (90 runs,
 0 Newton stalls). Now 34 of 45 combined-system runs reach the boundary
 before the limit; only NH4 <= 1.3 uM (and NH4 = 3.3 uM at O2 = 5 uM) still
-run to the limit. A 100x100 confirmation at this limit is running. Plots:
+run to the limit. A 100x100 run at this limit was started and stopped after
+8 of 45 points; it is superseded by the 100x100 sweeps below. Plots:
 `heatmap/heatmap_F_cmx_N49_T200.png`, `heatmap/heatmap_growth_N49_T200.png`;
 numbers in `heatmap/heatmap_summary_N49_T200.json`.
 
@@ -164,9 +166,110 @@ Stop time [days]:
   reaches it after 159-184 days while both species shrink, because the
   pressure-driven spreading pushes existing biomass outwards.
 
+### Common-time growth maps (100x100, 63-day sweep)
+
+The growth tables above read each point at its own stop time. Here every
+point is read at one time, T* = 47.5 units (50.1 days), when the first run
+(NH4 = 1000 uM, O2 = 250 uM) stops, so no colony has reached the boundary.
+AOB growth ranges from 0.12 to 3.20; CMX is flat at 0.82-0.84. Plots:
+`heatmap/heatmap_{AOB,CMX}_growth_common_time.png`, numbers in the matching
+`.json`; `python heatmap/render_common_time.py AOB` (or `CMX`, `NOB`).
+
+### 100x100 grid, finer O2, run limits 105 and 158 days
+
+O2_BC = 5, 15, 40, 70, 100, 175, 250 uM, capped at air saturation (~258 uM
+at 25 C) so that the first run to stop, the reference for comparing
+production and development rates across the map, sits at a practical
+aeration level. NH4_BC as before. One combined and one CMX-alone run per
+point (126 runs per run limit), 0 Newton stalls.
+
+The 158-day sweep continues the 105-day one from its stored t = 100 states
+(`heatmap/seed_extension.py`) rather than starting again; runs that had
+already reached the boundary are copied unchanged. Both sweeps keep
+everything needed for later analysis: per step the species masses, substrate
+stocks and volume-integrated reaction rates (`point_*.json`, `history.json`),
+and the full spatial fields of every species and substrate every 5 units
+plus the final state (`fields_nh4_<i>_o2_<j>/`, float32). Results are in
+`heatmap/results_{all,cmx}_N99_T{100,150}/` (0.7-1 GB per run limit, not
+committed). Runs checkpoint every 4 steps and resume when restarted, so a
+sweep can be killed at any time.
+
+F_CMX at stop time, 158-day limit:
+
+| O2 \ NH4 | 0.5 | 1.3 | 3.3 | 8.6 | 22 | 58 | 150 | 387 | 1000 |
+|---|---|---|---|---|---|---|---|---|---|
+| 250 | 0.95 | 0.92 | 0.80 | 0.67 | 0.52 | 0.35 | 0.23 | 0.20 | 0.20 |
+| 175 | 0.95 | 0.92 | 0.80 | 0.67 | 0.52 | 0.35 | 0.24 | 0.24 | 0.24 |
+| 100 | 0.95 | 0.92 | 0.81 | 0.67 | 0.51 | 0.35 | 0.31 | 0.31 | 0.31 |
+| 70  | 0.95 | 0.93 | 0.81 | 0.66 | 0.51 | 0.36 | 0.37 | 0.37 | 0.37 |
+| 40  | 0.95 | 0.93 | 0.81 | 0.66 | 0.51 | 0.45 | 0.46 | 0.46 | 0.46 |
+| 15  | 0.95 | 0.93 | 0.83 | 0.68 | 0.61 | 0.61 | 0.61 | 0.61 | 0.61 |
+| 5   | 0.95 | 0.94 | 0.89 | 0.85 | 0.84 | 0.83 | 0.83 | 0.83 | 0.83 |
+
+Stop time [days], 158-day limit (158 = never reached the boundary):
+
+| O2 \ NH4 | 0.5 | 1.3 | 3.3 | 8.6 | 22 | 58 | 150 | 387 | 1000 |
+|---|---|---|---|---|---|---|---|---|---|
+| 250 | 158 | 158 | 158 | 111 | 80 | 63 | 54 | 51 | 50 |
+| 175 | 158 | 158 | 158 | 111 | 80 | 64 | 57 | 55 | 55 |
+| 100 | 158 | 158 | 158 | 113 | 83 | 72 | 65 | 64 | 64 |
+| 70  | 158 | 158 | 158 | 115 | 86 | 76 | 72 | 71 | 71 |
+| 40  | 158 | 158 | 158 | 122 | 102 | 87 | 85 | 84 | 84 |
+| 15  | 158 | 158 | 158 | 158 | 134 | 127 | 125 | 124 | 124 |
+| 5   | 158 | 158 | 158 | 158 | 158 | 158 | 158 | 158 | 158 |
+
+- Transition F_CMX = 0.5 at NH4_BC = 24-25 uM for every O2 from 40 to
+  250 uM, identical at both run limits (the runs on either side of it reach
+  the boundary before 105 days). None at O2 <= 15 uM. On the coarser O2 grid
+  with the 63-day limit it was at 34-39 uM and only for O2 >= 100 uM; the
+  difference is the longer time, which lets AOB at 22 uM catch up.
+- Reaching the boundary: 25 of 63 combined runs by 105 days, 35 by 158
+  days. O2 = 15 uM with NH4 >= 22 uM and NH4 = 8.6 uM with O2 >= 40 uM are
+  the new ones. No CMX-alone run reaches it.
+- First to stop: NH4 = 1000 uM, O2 = 250 uM at 50.1 days.
+- CMX declines everywhere in the combined system (0.66-0.82 of its initial
+  mass at 158 days) and keeps 29-90 % of its isolated biomass; alone it
+  grows up to x2.8 at high NH4 and O2.
+- Between 105 and 158 days only the slow corners change: F_CMX at O2 = 15 uM
+  falls from 0.69 to 0.61, at O2 = 5 uM from 0.88 to 0.83, and at
+  NH4 = 3.3 uM from 0.87 to 0.80.
+
+Plots: `heatmap/heatmap_{F_cmx,growth}_N99_T{100,150}.png`; all numbers
+(including growth and competitive loss) in
+`heatmap/heatmap_summary_N99_T{100,150}.json`.
+
+### Spatial comparison: first to stop against the bottom-left corner
+
+The first run to stop (NH4 = 1000 uM, O2 = 250 uM) against NH4 = 0.5 uM,
+O2 = 5 uM, both at T* = 50.1 days. The state at T* is recomputed from the
+stored t = 45 fields (5 steps), since T* is not a snapshot time.
+
+| at 50.1 days | top right | bottom left |
+|---|---|---|
+| AOB [ug/mm] | 15.19 (x3.20) | 0.58 (x0.12) |
+| NOB [ug/mm] | 1.69 (x0.35) | 1.37 (x0.29) |
+| CMX [ug/mm] | 3.91 (x0.82) | 3.91 (x0.82) |
+| F_CMX | 0.20 | 0.87 |
+| inside the colony | O2 = 0, NH4 >= 821 uM | NH4 = 0, O2 ~ 4 uM |
+
+- At the top right AOB grows into an outer shell that takes all the O2;
+  at the bottom left the colony keeps its initial footprint and fades.
+- CMX stays in the core in both and only decays: it lacks O2 at the top
+  right and NH4 at the bottom left, so its mass is the same. This is why
+  CMX growth is flat across the map.
+- The AOB shell shows faint streaks along the grid axes and diagonals,
+  most likely an artefact of the square mesh.
+
+Plots: `heatmap/comparison_progression.png` (composition at 0-50 days),
+`heatmap/comparison_at_stop.png` (each species, NH4 and O2 at T*); numbers in
+`heatmap/comparison_summary.json`; `python heatmap/render_comparison.py 150`.
+
 To reproduce: `python base_case/run_base_case.py`, then
 `python base_case/render_base_case.py`; `python heatmap/run_heatmap.py all 99 8`,
 `python heatmap/run_heatmap.py cmx 99 4` (and `all 49 8` for the grid check), then `python heatmap/render_heatmap.py 99`.
+The arguments are `[system] [N] [workers] [T_max]`: `run_heatmap.py all 99 8 100`
+and `cmx 99 4 100`, then `seed_extension.py all 99 100 150`, `seed_extension.py cmx 99 100 150`,
+`run_heatmap.py all 99 8 150` and `cmx 99 4 150`; render with `render_heatmap.py 99 100` and `99 150`.
 
 ## Step 1 (superseded)
 

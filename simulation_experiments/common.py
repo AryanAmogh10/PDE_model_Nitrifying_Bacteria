@@ -6,7 +6,7 @@ quasi-steady substrate solve, warm-started each step; Dirichlet substrate
 boundaries. Initial biomass: the 300-circle condition, every species
 rescaled to the same total mass M0, so AOB and CMX start equal and the
 isolated systems are the combined system with species removed."""
-import sys, json, time, warnings
+import sys, os, json, time, pickle, warnings
 from pathlib import Path
 import numpy as np
 
@@ -90,9 +90,11 @@ def make_coeffs(preset):
 
 
 def run(preset, system, nh4_bc, o2_bc, N=49, T_max=60.0, dt=0.5, out=None,
-        snap_every_t=5.0, verbose=False):
+        snap_every_t=5.0, verbose=False, checkpoint=None, checkpoint_every=4, snap_dtype=np.float64):
     """nh4_bc, o2_bc nondimensional. Stops at T_max or at the first step with
-    biomass on a boundary node. Returns (history, info)."""
+    biomass on a boundary node. Returns (history, info). With `checkpoint`
+    (a file path) the state is saved every `checkpoint_every` steps and a
+    rerun resumes from it."""
     coeffs = make_coeffs(preset)
     grid = Grid2D(Nx=N, Ny=N, Lx=1.0, Ly=1.0)
     U = initial_biomass(grid, system)
@@ -124,16 +126,23 @@ def run(preset, system, nh4_bc, o2_bc, N=49, T_max=60.0, dt=0.5, out=None,
     def snapshot(t, C):
         if out is not None:
             for s in SPECIES:
-                np.save(out / f"t{t:g}_u_{s}.npy", U[s])
+                np.save(out / f"t{t:g}_u_{s}.npy", U[s].astype(snap_dtype))
             for s in SUBSTRATES:
-                np.save(out / f"t{t:g}_c_{s}.npy", C[s])
+                np.save(out / f"t{t:g}_c_{s}.npy", C[s].astype(snap_dtype))
 
     t0 = time.time()
-    C, h, method = solve()
-    record(0.0, C)
-    snapshot(0, C)
+    elapsed_before = 0.0
+    k_start = 1
+    if checkpoint is not None and Path(checkpoint).exists():
+        with open(checkpoint, "rb") as fh:
+            st = pickle.load(fh)
+        U, C, hist, k_start, elapsed_before = st["U"], st["C"], st["hist"], st["k"] + 1, st["elapsed"]
+    else:
+        C, h, method = solve()
+        record(0.0, C)
+        snapshot(0, C)
     touch_t = None
-    for k in range(1, int(round(T_max / dt)) + 1):
+    for k in range(k_start, int(round(T_max / dt)) + 1):
         U, _ = solve_parabolic_2d(coeffs, C, U, grid, dt=dt, n_steps=1)
         for s in SPECIES:
             U[s][U[s] < U_CUT] = 0.0
@@ -150,11 +159,21 @@ def run(preset, system, nh4_bc, o2_bc, N=49, T_max=60.0, dt=0.5, out=None,
         if hist["boundary_mass"][-1] > 0.0:
             touch_t = t
             break
+        if checkpoint is not None and k % checkpoint_every == 0:
+            # write-then-rename, so a kill mid-write never leaves a corrupt file
+            tmp = Path(str(checkpoint) + ".tmp")
+            with open(tmp, "wb") as fh:
+                pickle.dump({"U": U, "C": C, "hist": hist, "k": k,
+                             "elapsed": elapsed_before + time.time() - t0}, fh)
+            os.replace(tmp, checkpoint)
 
+    k_end = len(hist["t"]) - 1
+    if k_end % snap_every != 0:
+        snapshot(hist["t"][-1], C)   # final state is always saved
     info = {"preset": preset, "system": system, "NH4_BC": nh4_bc, "O2_BC": o2_bc, "N": N, "dt": dt,
             "T_max": T_max, "T_end": hist["t"][-1], "boundary_touch_t": touch_t,
             "stalled": hist["stalled"], "newton_iters_mean": float(np.mean(hist["newton_iters"])),
-            "wall_s": time.time() - t0}
+            "wall_s": elapsed_before + time.time() - t0}
     if out is not None:
         np.save(out / "grid_shape.npy", np.array([N, N]))
         (out / "history.json").write_text(json.dumps(hist))

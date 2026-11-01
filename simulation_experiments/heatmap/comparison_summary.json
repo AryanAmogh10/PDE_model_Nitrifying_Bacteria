@@ -1,0 +1,44 @@
+{
+ "T_star_units": 47.5,
+ "T_star_days": 50.06,
+ "cases": {
+  "top right (first to stop)": {
+   "NH4_uM": 1000.0,
+   "O2_uM": 250.0,
+   "biomass_ug_per_mm": {
+    "AOB": 15.194,
+    "NOB": 1.685,
+    "CMX": 3.908
+   },
+   "growth": {
+    "AOB": 3.197,
+    "NOB": 0.355,
+    "CMX": 0.822
+   },
+   "F_CMX": 0.205,
+   "min_uM": {
+    "NH4": 821.277,
+    "O2": 0.0
+   }
+  },
+  "bottom left": {
+   "NH4_uM": 0.5,
+   "O2_uM": 5.0,
+   "biomass_ug_per_mm": {
+    "AOB": 0.577,
+    "NOB": 1.368,
+    "CMX": 3.908
+   },
+   "growth": {
+    "AOB": 0.121,
+    "NOB": 0.288,
+    "CMX": 0.822
+   },
+   "F_CMX": 0.871,
+   "min_uM": {
+    "NH4": 0.0,
+    "O2": 4.067
+   }
+  }
+ }
+}

@@ -17,12 +17,13 @@ HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent))
 import common as c
-from run_heatmap import NH4_UM, O2_UM, PRESET, point_file
+from run_heatmap import NH4_UM, o2_values, PRESET, point_file
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 99
 T_MAX = float(sys.argv[2]) if len(sys.argv) > 2 else 60.0
 TAG = "" if (N == 99 and T_MAX == 60.0) else f"_N{N}_T{T_MAX:g}"
 u = c.Units(PRESET)
+O2_UM = o2_values(T_MAX)
 nI, nJ = len(NH4_UM), len(O2_UM)
 
 
