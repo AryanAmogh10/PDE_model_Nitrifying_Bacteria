@@ -264,6 +264,14 @@ Plots: `heatmap/comparison_progression.png` (composition at 0-50 days),
 `heatmap/comparison_at_stop.png` (each species, NH4 and O2 at T*); numbers in
 `heatmap/comparison_summary.json`; `python heatmap/render_comparison.py 150`.
 
+### Production and development rates of the fastest run
+
+In `fastest_run_comparison/` (own README): NH4, NO2 and NO3 turnover,
+specific growth rates and colony footprint of every combined run against
+the first run to stop, at T* = 50.1 days. In short, the fastest run has the
+highest NH4 turnover and AOB growth, but makes almost no NO3 (8 % of the
+oxidised N), because its AOB shell starves NOB and CMX of O2.
+
 To reproduce: `python base_case/run_base_case.py`, then
 `python base_case/render_base_case.py`; `python heatmap/run_heatmap.py all 99 8`,
 `python heatmap/run_heatmap.py cmx 99 4` (and `all 49 8` for the grid check), then `python heatmap/render_heatmap.py 99`.
