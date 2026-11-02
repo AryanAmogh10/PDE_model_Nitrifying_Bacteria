@@ -59,6 +59,25 @@ relative to t = 0.
   1.55x its initial area while every species shrinks, through the
   pressure-driven motility.
 
+### Development over time
+
+`development_over_time.png` shows the same quantities at 10.5, 21.1, 31.6,
+42.2 and 50.1 days (footprint at the snapshot times, the last at 47.4 days).
+
+- AOB in the fastest run is the first to grow (+0.015 per day at 10.5 days,
+  when every other run still declines) and has the highest rate on the map
+  at every time.
+- The growing-AOB region spreads from the top-right corner downwards and to
+  lower NH4 with time: at 21 days it covers O2 >= 100 uM with NH4 >= 58 uM,
+  at 50 days O2 >= 40 uM with NH4 >= 22 uM. At O2 <= 15 uM AOB never grows
+  before T*.
+- NOB growth appears only from ~32 days and only at NH4 22-150 uM with
+  O2 >= 70 uM; the fastest run's NOB declines throughout.
+- CMX declines at the same, slowly easing rate everywhere (-0.005 at 10.5
+  days to -0.003 at 50 days).
+- The footprint of the fastest run grows 1.68 -> 2.35 -> 3.17 -> 4.14 ->
+  4.73; the low-NH4 or low-O2 runs spread only to 1.3-1.7 by motility.
+
 ## Files
 
 ```
@@ -70,6 +89,9 @@ rates_summary.json         all numbers behind rates_at_Tstar.png
 development_timeseries.png biomass and net specific growth rate per species over time, all runs
 development_at_Tstar.png   growth rates at T* and averaged to T*, footprint, total growth rate
 development_summary.json   all numbers behind development_at_Tstar.png
+render_development_times.py  python render_development_times.py [T_max, default 150]
+development_over_time.png  growth rate per species and footprint at 10.5-50.1 days
+development_over_time.json all numbers behind development_over_time.png
 ```
 
 Both scripts read the stored sweep results (not committed; produced by
