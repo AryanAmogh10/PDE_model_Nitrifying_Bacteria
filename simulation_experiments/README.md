@@ -7,6 +7,14 @@ The work follows the plan in `simulation_experiments.pdf`.
 
 ## Current setup: base case and heatmap
 
+Current heatmaps: `heatmap/heatmap_F_cmx_N99_T150.png`,
+`heatmap/heatmap_growth_N99_T150.png` and the common-time maps
+`heatmap/heatmap_{AOB,CMX,NOB}_growth_common_time_N99_T150.png` (100x100
+grid, 158-day run limit, 7 O2 values). Earlier versions (63, 105 and
+211 days) are kept in `heatmap/archive/`; the renderers write to
+`heatmap/`, so re-rendering an old sweep puts its output next to the
+current ones.
+
 `common.py` holds the shared setup; `base_case/` and `heatmap/` use it. They
 supersede Step 1 (further below), which started AOB with half the mass of CMX
 and used O2_BC = 5 nondimensional = 2500 uM, about 10x air saturation.
@@ -61,9 +69,9 @@ NH4_BC = 0.5 to 1000 uM (9 values, log-spaced), O2_BC = 5, 15, 40, 100,
 250 uM; one combined-system run and one CMX-alone run per point (90 runs,
 0 Newton stalls). Most runs never reach the boundary and stop at 63 days;
 only O2 = 250 uM with NH4 >= 150 uM touches it (at 50-54 days). Rows are
-O2_BC [uM], columns NH4_BC [uM]. Plots: `heatmap/heatmap_F_cmx.png`,
-`heatmap/heatmap_growth.png`, `heatmap/heatmap_resolution.png`; all numbers in
-`heatmap/heatmap_summary.json`.
+O2_BC [uM], columns NH4_BC [uM]. Plots: `heatmap/archive/heatmap_F_cmx.png`,
+`heatmap/archive/heatmap_growth.png`, `heatmap/archive/heatmap_resolution.png`; all numbers in
+`heatmap/archive/heatmap_summary.json`.
 
 F_CMX = M_CMX / (M_AOB + M_CMX) at stop time (starts at 0.5):
 
@@ -117,7 +125,7 @@ What this shows:
 - F_CMX > 0.5 does not mean CMX wins. It marks where AOB collapses (down to
   0.09) faster than CMX, which decays 14x more slowly. Within these 63 days
   there is no condition under which CMX outgrows AOB in the combined system.
-- Grid check (`heatmap_resolution.png`): the 50x50 sweep gives the same
+- Grid check (`archive/heatmap_resolution.png`): the 50x50 sweep gives the same
   pattern, with F_CMX within 0.07 of the 100x100 values and transitions at
   36 uM for both O2 = 100 and 250 uM (against 39 and 34 here).
 
@@ -129,8 +137,8 @@ with a run limit of 200 solver units (211 days) on the 50x50 grid (90 runs,
 before the limit; only NH4 <= 1.3 uM (and NH4 = 3.3 uM at O2 = 5 uM) still
 run to the limit. A 100x100 run at this limit was started and stopped after
 8 of 45 points; it is superseded by the 100x100 sweeps below. Plots:
-`heatmap/heatmap_F_cmx_N49_T200.png`, `heatmap/heatmap_growth_N49_T200.png`;
-numbers in `heatmap/heatmap_summary_N49_T200.json`.
+`heatmap/archive/heatmap_F_cmx_N49_T200.png`, `heatmap/archive/heatmap_growth_N49_T200.png`;
+numbers in `heatmap/archive/heatmap_summary_N49_T200.json`.
 
 F_CMX at stop time:
 
@@ -166,14 +174,17 @@ Stop time [days]:
   reaches it after 159-184 days while both species shrink, because the
   pressure-driven spreading pushes existing biomass outwards.
 
-### Common-time growth maps (100x100, 63-day sweep)
+### Common-time growth maps
 
-The growth tables above read each point at its own stop time. Here every
-point is read at one time, T* = 47.5 units (50.1 days), when the first run
+The growth tables read each point at its own stop time. Here every point is
+read at one time, T* = 47.5 units (50.1 days), when the first run
 (NH4 = 1000 uM, O2 = 250 uM) stops, so no colony has reached the boundary.
-AOB growth ranges from 0.12 to 3.20; CMX is flat at 0.82-0.84. Plots:
-`heatmap/heatmap_{AOB,CMX}_growth_common_time.png`, numbers in the matching
-`.json`; `python heatmap/render_common_time.py AOB` (or `CMX`, `NOB`).
+From the 158-day sweep with the finer O2 grid (below): AOB growth 0.12 to
+3.20, NOB 0.29 to 0.79, CMX flat at 0.82-0.84. Plots:
+`heatmap/heatmap_{AOB,CMX,NOB}_growth_common_time_N99_T150.png`, numbers in
+the matching `.json`; `python heatmap/render_common_time.py AOB 150` (or
+`CMX`, `NOB`). The first version, from the 63-day sweep with 5 O2 values,
+is in `heatmap/archive/`.
 
 ### 100x100 grid, finer O2, run limits 105 and 158 days
 
@@ -234,9 +245,9 @@ Stop time [days], 158-day limit (158 = never reached the boundary):
   falls from 0.69 to 0.61, at O2 = 5 uM from 0.88 to 0.83, and at
   NH4 = 3.3 uM from 0.87 to 0.80.
 
-Plots: `heatmap/heatmap_{F_cmx,growth}_N99_T{100,150}.png`; all numbers
-(including growth and competitive loss) in
-`heatmap/heatmap_summary_N99_T{100,150}.json`.
+Plots (current): `heatmap/heatmap_{F_cmx,growth}_N99_T150.png`; all numbers
+(including growth and competitive loss) in `heatmap/heatmap_summary_N99_T150.json`.
+The 105-day versions are in `heatmap/archive/` (`_N99_T100`).
 
 ### Spatial comparison: first to stop against the bottom-left corner
 
