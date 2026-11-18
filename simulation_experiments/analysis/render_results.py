@@ -44,13 +44,28 @@ def lab(v, fmt, strip=True, zero=None):
         s = "-" + s[2:]
     return s
 
-def heat(ax, a, title, cmap, norm, fmt="{:.2f}", zero=None, line=True, xlabel=True, ylabel=True, fs=5.8, nanlab="", box=None):
+from matplotlib.colors import LinearSegmentedColormap
+DIVERGING = ("RdBu", "RdBu_r", "PRGn", "PRGn_r")
+
+def wmap(name):
+    """Colour map whose lowest value is pure white (diverging maps: pure white in the middle)."""
+    base = plt.get_cmap(name)
+    if name in DIVERGING:
+        cols = [base(x) for x in np.linspace(0, 0.42, 120)] + [(1, 1, 1, 1)] + [base(x) for x in np.linspace(0.58, 1, 120)]
+    else:
+        xs_ = np.linspace(0, 1, 256)
+        w = np.clip(xs_ / 0.35, 0, 1)[:, None]
+        cols = (1 - w) * np.ones((256, 4)) + w * np.array([base(x) for x in xs_])
+        cols[:, 3] = 1.0
+    return LinearSegmentedColormap.from_list(name + "_w", cols, N=256)
+
+def heat(ax, a, title, cmap, norm, fmt="{:.2f}", zero=None, line=False, xlabel=True, ylabel=True, fs=5.8, nanlab="", box=None):
     """a has shape [NI, NJ]; shown with O2 on the vertical and NH4 on the horizontal axis."""
     arr = np.asarray(a, float).T
     shown = np.where(np.isfinite(arr), arr, np.nan)
     if isinstance(norm, LogNorm):
         shown = np.where(np.isfinite(shown), np.maximum(shown, norm.vmin), np.nan)
-    cm = plt.get_cmap(cmap).copy(); cm.set_bad("#e8e8e8")
+    cm = wmap(cmap).copy(); cm.set_bad("#e8e8e8")
     im = ax.imshow(shown, origin="lower", aspect="auto", cmap=cm, norm=norm)
     ax.set_xticks(range(NI)); ax.set_xticklabels([("%g" % round(x, 1) if x < 10 else "%d" % round(x)) for x in NH4], rotation=60, ha="right")
     ax.set_yticks(range(NJ)); ax.set_yticklabels(["%d" % y for y in O2])
@@ -86,14 +101,14 @@ def fig_fcmx():
     Fs = np.array(h["F_CMX"]); stop = np.array(h["stop_days"]); touched = np.array(h["touched_boundary"], dtype=bool)
     fig, axes = plt.subplots(1, 2, figsize=(6.5, 3.0))
     arr = Fs.T
-    heat(axes[0], Fs.T.T if False else np.asarray(h["F_CMX"]).T, "$F_{\\mathrm{CMX}}$ at the stop time", "PRGn_r", Normalize(0, 1), fmt="{:.2f}")
+    heat(axes[0], Fs.T.T if False else np.asarray(h["F_CMX"]).T, "$F_{\\mathrm{CMX}}$ at the stop time", "Purples", Normalize(0, 1), fmt="{:.2f}")
     # the summary json is stored as [O2, NH4]; heat() expects [NH4, O2]
     plt.close(fig)
     Fs2 = np.asarray(h["F_CMX"]); st2 = np.asarray(h["stop_days"]); to2 = np.asarray(h["touched_boundary"], dtype=bool)
     if Fs2.shape == (NJ, NI):
         Fs2, st2, to2 = Fs2.T, st2.T, to2.T
     fig, axes = plt.subplots(1, 2, figsize=(6.5, 3.0))
-    heat(axes[0], Fs2, "$F_{\\mathrm{CMX}}$ at the stop time", "PRGn_r", Normalize(0, 1), fmt="{:.2f}")
+    heat(axes[0], Fs2, "$F_{\\mathrm{CMX}}$ at the stop time", "Purples", Normalize(0, 1), fmt="{:.2f}")
     heat(axes[1], st2, "Stop time [days]", "viridis", Normalize(40, 160), fmt="{:.0f}", ylabel=False, strip=False) if False else None
     ax = axes[1]
     heat(ax, st2, "Stop time [days]", "viridis", Normalize(40, 160), fmt="{:.0f}", ylabel=False)

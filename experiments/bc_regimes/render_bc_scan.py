@@ -7,6 +7,21 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 
+from matplotlib.colors import LinearSegmentedColormap as _LSC
+def wmap(cmap):
+    """Lowest value pure white (diverging maps: pure white in the middle)."""
+    base = plt.get_cmap(cmap)
+    name = base.name
+    if name in ("RdBu", "RdBu_r", "PRGn", "PRGn_r"):
+        cols = [base(x) for x in np.linspace(0, 0.42, 120)] + [(1, 1, 1, 1)] + [base(x) for x in np.linspace(0.58, 1, 120)]
+        return _LSC.from_list(name + "_w", cols, N=256)
+    xs_ = np.linspace(0, 1, 256)
+    w = np.clip(xs_ / 0.35, 0, 1)[:, None]
+    cols = (1 - w) * np.ones((256, 4)) + w * np.array([base(x) for x in xs_])
+    cols[:, 3] = 1.0
+    return _LSC.from_list(name + "_w", cols, N=256)
+
+
 HERE = Path(__file__).resolve().parent
 OUT = Path(r"C:\Users\amogh\OneDrive\Desktop\Thesis\Overleaf_export\figures")
 plt.rcParams.update({"font.size": 7.5, "axes.titlesize": 8, "figure.dpi": 200, "savefig.dpi": 220})
@@ -28,7 +43,7 @@ Z = np.full((len(CI), len(BI)), np.nan)
 for x in r:
     if x["kind"] == "robin":
         Z[CI.index(x["par"][1]), BI.index(x["par"][0])] = x["m_rel"]
-im = ax.imshow(Z, origin="lower", aspect="auto", cmap="YlGn", norm=LogNorm(1, 80))
+im = ax.imshow(Z, origin="lower", aspect="auto", cmap=wmap("YlGn"), norm=LogNorm(1, 80))
 ax.set_xticks(range(len(BI))); ax.set_xticklabels([("%g" % b) for b in BI]); ax.set_yticks(range(len(CI))); ax.set_yticklabels([("%g" % c) for c in CI])
 for i, c in enumerate(CI):
     for j, b in enumerate(BI):
